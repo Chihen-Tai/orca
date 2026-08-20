@@ -2,7 +2,7 @@
 import * as net from 'node:net'
 import { Client as SshClient } from 'ssh2'
 import type { ChildProcess } from 'node:child_process'
-import type { ClientChannel, ConnectConfig, SFTPWrapper } from 'ssh2'
+import type { ClientChannel, ConnectConfig, Prompt, SFTPWrapper } from 'ssh2'
 import type { SshTarget, SshConnectionState, SshConnectionStatus } from '../../shared/ssh-types'
 import {
   getOrcaControlSocketPath,
@@ -37,6 +37,7 @@ import {
   type SshExecOptions,
   type SshConnectionCallbacks
 } from './ssh-connection-utils'
+import { collectKeyboardInteractiveResponses } from './ssh-keyboard-interactive'
 import { resolveEffectiveProxy, spawnProxyCommand } from './ssh-proxy-command'
 import {
   createHostKeyVerifier,
@@ -189,6 +190,7 @@ export class SshConnection {
   private disposed = false
   private cachedPassphrase: string | null = null
   private cachedPassword: string | null = null
+  private keyboardInteractiveCancelled = false
   private hostKeyFingerprint: string | undefined
   private connectGeneration = 0
 
@@ -714,20 +716,22 @@ export class SshConnection {
    * racing the live attempt's own. Returning undefined drops each rung through to its throw.
    */
   private async requestCredential(
-    kind: 'passphrase' | 'password',
+    kind: 'passphrase' | 'password' | 'keyboard-interactive',
     detail: string,
-    connectGeneration: number
+    connectGeneration: number,
+    echo?: boolean
   ): Promise<string | null | undefined> {
     if (this.disposed || connectGeneration !== this.connectGeneration) {
       return undefined
     }
-    return this.callbacks.onCredentialRequest?.(this.target.id, kind, detail)
+    return this.callbacks.onCredentialRequest?.(this.target.id, kind, detail, echo)
   }
 
   private async attemptConnect(connectGeneration = ++this.connectGeneration): Promise<void> {
     this.setState('connecting')
     this.proxyProcess?.kill()
     this.proxyProcess = null
+    this.keyboardInteractiveCancelled = false
 
     const resolved = await resolveWithSshG(this.target.configHost || this.target.label).catch(
       () => null
@@ -810,6 +814,15 @@ export class SshConnection {
       // would connect anyway whenever the disagreement is with our own store rather than
       // known_hosts. A denied key is final for this attempt.
       if (isHostKeyVerificationError(err)) {
+        this.proxyProcess?.kill()
+        this.proxyProcess = null
+        throw err
+      }
+
+      // Why: a cancelled keyboard-interactive prompt is an explicit user
+      // decision; falling through to another prompt or transport would ask
+      // again for the same login the user just declined to complete.
+      if (this.keyboardInteractiveCancelled) {
         this.proxyProcess?.kill()
         this.proxyProcess = null
         throw err
@@ -1438,6 +1451,7 @@ export class SshConnection {
       const cleanupStartupListeners = (): void => {
         client.off('ready', onReady)
         client.off('error', onStartupError)
+        client.off('keyboard-interactive', onKeyboardInteractive)
       }
       const swallowLateStartupError = (): void => {
         // Why: ssh2 can emit another socket error while destroying a settled pre-handshake client.
@@ -1491,8 +1505,85 @@ export class SshConnection {
         reject(hostKeyRejection ?? err)
       }
 
+      // Why: MFA servers deliver their challenges via keyboard-interactive
+      // (RFC 4256), typically after password auth partially succeeds. Without
+      // a handler ssh2 skips the method and the whole auth fails with "All
+      // configured authentication methods failed".
+      const kiState = { passwordAutoAnswered: false }
+      const onKeyboardInteractive = (
+        _name: string,
+        instructions: string,
+        _lang: string,
+        prompts: Prompt[],
+        finish: (responses: string[]) => void
+      ): void => {
+        // Why: readyTimeout budgets the network handshake, but these prompts
+        // wait on a human (push approval, OTP entry). A prompt proves the
+        // server is alive; from here the server's LoginGraceTime and the
+        // credential dialog's own 120s timeout bound the wait.
+        const readyTimeout = (client as unknown as { _readyTimeout?: NodeJS.Timeout })._readyTimeout
+        if (readyTimeout !== undefined) {
+          clearTimeout(readyTimeout)
+        } else {
+          // Why: this reaches into ssh2 internals — if the field moves, the
+          // handshake timeout silently cuts MFA prompts short again. Make
+          // that breakage visible without logging anything sensitive (target
+          // label only — never the prompt text or any credential value).
+          console.warn(
+            `[ssh] Could not clear the handshake timeout for ${this.target.label}; keyboard-interactive prompts may be cut short`
+          )
+        }
+        collectKeyboardInteractiveResponses(
+          {
+            targetId: this.target.id,
+            hostDetail: config.host || this.target.label,
+            // Why the coalesce: this.requestCredential returns undefined when
+            // this attempt has been superseded/disposed (see its doc comment
+            // above) — KeyboardInteractiveSession's contract matches
+            // SshConnectionCallbacks.onCredentialRequest, which never returns
+            // undefined, so a stale attempt reads as "no answer" (null) same
+            // as an explicit user cancellation.
+            requestCredential: async (_targetId, kind, detail, echo) =>
+              (await this.requestCredential(kind, detail, connectGeneration, echo)) ?? null,
+            getCachedPassword: () => this.cachedPassword,
+            setCachedPassword: (value) => {
+              this.cachedPassword = value
+            },
+            markCancelled: () => {
+              this.keyboardInteractiveCancelled = true
+            },
+            isCancelled: () => this.keyboardInteractiveCancelled,
+            state: kiState
+          },
+          instructions,
+          prompts
+        ).then(
+          (responses) => {
+            // Why: a late answer must not write to a client that already
+            // timed out or was torn down by disconnect/reconnect.
+            if (!settled) {
+              finish(responses ?? [])
+            }
+          },
+          (err) => {
+            // Why: distinguishes a real failure (e.g. a broken credential
+            // prompter) from an expected user cancellation in the logs. Never
+            // logs the prompt text or any credential value.
+            console.warn(
+              `[ssh] keyboard-interactive handling failed for ${this.target.label}: ${
+                err instanceof Error ? err.message : String(err)
+              }`
+            )
+            if (!settled) {
+              finish([])
+            }
+          }
+        )
+      }
+
       client.on('ready', onReady)
       client.on('error', onStartupError)
+      client.on('keyboard-interactive', onKeyboardInteractive)
       client.connect(config)
     })
   }

@@ -169,7 +169,12 @@ describe('SshConnection', () => {
     expect(retryConfig.agent).toBeUndefined()
     expect(retryConfig.password).toBe('password-123')
     expect(retryConfig.privateKey).toBeUndefined()
-    expect(onCredentialRequest).toHaveBeenCalledWith('target-1', 'password', 'example.com')
+    expect(onCredentialRequest).toHaveBeenCalledWith(
+      'target-1',
+      'password',
+      'example.com',
+      undefined
+    )
   })
 
   it('retries password auth with the no-agent key config after direct key fallback fails', async () => {
@@ -231,7 +236,7 @@ describe('SshConnection', () => {
 
       await expect(conn.connect()).rejects.toThrow('Encrypted private OpenSSH key detected')
       expect(onCredentialRequest).toHaveBeenCalledTimes(1)
-      expect(onCredentialRequest).toHaveBeenCalledWith('target-1', 'passphrase', keyPath)
+      expect(onCredentialRequest).toHaveBeenCalledWith('target-1', 'passphrase', keyPath, undefined)
     } finally {
       rmSync(tempDir, { recursive: true, force: true })
     }

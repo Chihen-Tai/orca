@@ -11,6 +11,7 @@ import type { SshTarget } from '../../shared/ssh-types'
 export type MockSshClient = {
   setNoDelay: ReturnType<typeof vi.fn>
   _sock: Socket | undefined
+  _readyTimeout: NodeJS.Timeout
   lastExecCommand?: string
   lastConnectConfig?: unknown
   exec: (cmd: string, cb: (err: Error | undefined, channel: unknown) => void) => void
@@ -65,7 +66,10 @@ export const ssh2Mock = {
   connectErrorMessage: '',
   connectErrorCode: '',
   destroyErrorMessage: '',
-  connectSequence: [] as ('ready' | Error)[],
+  // Why 'silent': leaves the connect attempt pending (no ready/error emitted)
+  // so a test can drive auth events (e.g. keyboard-interactive prompts)
+  // through emitSshEvent itself.
+  connectSequence: [] as ('ready' | 'silent' | Error)[],
   execBehavior: 'callback' as 'callback' | 'pending',
   sftpBehavior: 'callback' as 'callback' | 'pending',
   notifyClientCreated: undefined as (() => void) | undefined
@@ -123,6 +127,10 @@ export function createSsh2Module(): Ssh2ModuleMock {
     // to decide which log line to emit. A real Socket instance lets the test
     // exercise the "enabled" branch instead of the "skipped (proxy socket)" branch.
     _sock: Socket | undefined = new Socket()
+    // Why: production code clears ssh2's internal handshake timer when a
+    // keyboard-interactive prompt arrives (and warns when the field is
+    // missing); a dummy timer keeps that path exercised without the warning.
+    _readyTimeout: NodeJS.Timeout = setTimeout(() => {}, 0)
     lastExecCommand?: string
     lastConnectConfig?: unknown
     constructor() {
@@ -176,6 +184,9 @@ export function createSsh2Module(): Ssh2ModuleMock {
         }
         if (next === 'ready') {
           emitSshEvent('ready')
+          return
+        }
+        if (next === 'silent') {
           return
         }
         if (ssh2Mock.connectBehavior === 'error') {
