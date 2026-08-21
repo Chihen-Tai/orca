@@ -1396,6 +1396,24 @@ export class SshConnection {
           postResponseTimeout = null
         }
       }
+      // Why: bound the wait for the server's reaction to our answers (next
+      // round, ready, or error) the same way CONNECT_TIMEOUT_MS bounds the
+      // initial handshake — nothing else re-arms a timer once the
+      // readyTimeout has been cleared. Must run after every finish() call,
+      // including the empty-answer fallback on a failed collection, or a
+      // silent server leaves doSsh2Connect pending forever.
+      const armPostResponseTimeout = (): void => {
+        clearPostResponseTimeout()
+        postResponseTimeout = setTimeout(() => {
+          if (!settled) {
+            onStartupError(
+              new Error(
+                `Timed out waiting for a response after keyboard-interactive authentication for ${this.target.label}`
+              )
+            )
+          }
+        }, CONNECT_TIMEOUT_MS)
+      }
 
       // Why the fingerprint is still recorded: the relay uses the negotiated server key to isolate
       // shared-home install locks without comparing PIDs from an unrelated SSH host. Its format is
@@ -1596,20 +1614,7 @@ export class SshConnection {
             // timed out or was torn down by disconnect/reconnect.
             if (!settled) {
               finish(responses ?? [])
-              // Why: bound the wait for the server's reaction to our answers
-              // (next round, ready, or error) the same way CONNECT_TIMEOUT_MS
-              // bounds the initial handshake — nothing else re-arms a timer
-              // once the readyTimeout above has been cleared.
-              clearPostResponseTimeout()
-              postResponseTimeout = setTimeout(() => {
-                if (!settled) {
-                  onStartupError(
-                    new Error(
-                      `Timed out waiting for a response after keyboard-interactive authentication for ${this.target.label}`
-                    )
-                  )
-                }
-              }, CONNECT_TIMEOUT_MS)
+              armPostResponseTimeout()
             }
           },
           (err) => {
@@ -1623,6 +1628,7 @@ export class SshConnection {
             )
             if (!settled) {
               finish([])
+              armPostResponseTimeout()
             }
           }
         )
