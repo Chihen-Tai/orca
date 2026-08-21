@@ -1396,12 +1396,7 @@ export class SshConnection {
           postResponseTimeout = null
         }
       }
-      // Why: bound the wait for the server's reaction to our answers (next
-      // round, ready, or error) the same way CONNECT_TIMEOUT_MS bounds the
-      // initial handshake — nothing else re-arms a timer once the
-      // readyTimeout has been cleared. Must run after every finish() call,
-      // including the empty-answer fallback on a failed collection, or a
-      // silent server leaves doSsh2Connect pending forever.
+      // Bound the server response after each keyboard-interactive answer.
       const armPostResponseTimeout = (): void => {
         clearPostResponseTimeout()
         postResponseTimeout = setTimeout(() => {
