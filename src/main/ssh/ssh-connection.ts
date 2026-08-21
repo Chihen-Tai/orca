@@ -875,6 +875,14 @@ export class SshConnection {
               this.proxyProcess = null
               throw keyErr
             }
+            // Why: same reasoning as the top-level guard above — a cancelled
+            // keyboard-interactive prompt on this rung must not fall through
+            // to the passphrase/password rungs below.
+            if (this.keyboardInteractiveCancelled) {
+              this.proxyProcess?.kill()
+              this.proxyProcess = null
+              throw keyErr
+            }
             authError = keyErr
             const passphraseKeyPath = getPassphrasePrivateKeyPath(keyConfig)
             // Why: with GSSAPI enabled, let the reactive system-ssh probe try a Kerberos ticket before prompting for the passphrase; the prompt still runs if it fails.
@@ -1378,6 +1386,16 @@ export class SshConnection {
       // the live attempt's error, and substituting a new Error drops ssh2's `code`, so a transient
       // ECONNRESET would stop being classified as retryable.
       let hostKeyRejection: HostKeyVerificationError | null = null
+      // Why: ssh2 never restarts its own handshake timer once a keyboard-interactive round begins
+      // (see the clearTimeout below), so a server that stops responding right after receiving our
+      // answers would otherwise leave doSsh2Connect — and the whole connect() call — pending forever.
+      let postResponseTimeout: NodeJS.Timeout | null = null
+      const clearPostResponseTimeout = (): void => {
+        if (postResponseTimeout) {
+          clearTimeout(postResponseTimeout)
+          postResponseTimeout = null
+        }
+      }
 
       // Why the fingerprint is still recorded: the relay uses the negotiated server key to isolate
       // shared-home install locks without comparing PIDs from an unrelated SSH host. Its format is
@@ -1452,6 +1470,7 @@ export class SshConnection {
         client.off('ready', onReady)
         client.off('error', onStartupError)
         client.off('keyboard-interactive', onKeyboardInteractive)
+        clearPostResponseTimeout()
       }
       const swallowLateStartupError = (): void => {
         // Why: ssh2 can emit another socket error while destroying a settled pre-handshake client.
@@ -1517,6 +1536,10 @@ export class SshConnection {
         prompts: Prompt[],
         finish: (responses: string[]) => void
       ): void => {
+        // Why: a fresh round means the server responded to our previous
+        // answers, so the bound set below after the last finish() no longer
+        // applies — this round gets its own bound once it's answered.
+        clearPostResponseTimeout()
         // Why: readyTimeout budgets the network handshake, but these prompts
         // wait on a human (push approval, OTP entry). A prompt proves the
         // server is alive; from here the server's LoginGraceTime and the
@@ -1550,9 +1573,19 @@ export class SshConnection {
               this.cachedPassword = value
             },
             markCancelled: () => {
+              // Why: a superseded/disposed attempt still holds a pending
+              // prompt whose requestCredential resolves to undefined (see
+              // the coalesce above), which reads as a cancellation. Without
+              // this guard that stale attempt would set the flag on the
+              // live attempt's instance field and cause it to skip its own
+              // passphrase/password rungs as if the user had cancelled.
+              if (connectGeneration !== this.connectGeneration) {
+                return
+              }
               this.keyboardInteractiveCancelled = true
             },
-            isCancelled: () => this.keyboardInteractiveCancelled,
+            isCancelled: () =>
+              connectGeneration !== this.connectGeneration || this.keyboardInteractiveCancelled,
             state: kiState
           },
           instructions,
@@ -1563,6 +1596,20 @@ export class SshConnection {
             // timed out or was torn down by disconnect/reconnect.
             if (!settled) {
               finish(responses ?? [])
+              // Why: bound the wait for the server's reaction to our answers
+              // (next round, ready, or error) the same way CONNECT_TIMEOUT_MS
+              // bounds the initial handshake — nothing else re-arms a timer
+              // once the readyTimeout above has been cleared.
+              clearPostResponseTimeout()
+              postResponseTimeout = setTimeout(() => {
+                if (!settled) {
+                  onStartupError(
+                    new Error(
+                      `Timed out waiting for a response after keyboard-interactive authentication for ${this.target.label}`
+                    )
+                  )
+                }
+              }, CONNECT_TIMEOUT_MS)
             }
           },
           (err) => {

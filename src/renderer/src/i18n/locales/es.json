@@ -7111,9 +7111,9 @@
           "cab3d5f5a5": "Contraseña para {{value0}}",
           "1f3dde805d": "Frase de contraseña de clave SSH",
           "106bd57f4a": "Contraseña SSH",
-          "6d2b7b77b7": "SSH Verification",
-          "baf23a0fcf": "Respond to the verification prompt from",
-          "7effa48279": "Enter response"
+          "6d2b7b77b7": "Verificación SSH",
+          "baf23a0fcf": "Responde a la solicitud de verificación de",
+          "7effa48279": "Introduce la respuesta"
         },
         "SshTargetCard": {
           "ec6543cee9": "Conectar",
