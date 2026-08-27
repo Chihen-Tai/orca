@@ -1262,7 +1262,7 @@ export class SshConnection {
     return channel
   }
 
-  private getSystemSshBuildArgsOptions(): SystemSshBuildArgsOptions {
+  getSystemSshBuildArgsOptions(): SystemSshBuildArgsOptions {
     const options: SystemSshBuildArgsOptions = {}
     if (this.systemSshResolvedConfig) {
       options.resolvedConfig = this.systemSshResolvedConfig
