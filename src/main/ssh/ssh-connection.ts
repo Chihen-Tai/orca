@@ -24,6 +24,7 @@ import {
   INITIAL_RETRY_DELAY_MS,
   RECONNECT_BACKOFF_MS,
   CONNECT_TIMEOUT_MS,
+  KEYBOARD_INTERACTIVE_RESPONSE_TIMEOUT_MS,
   isTransientError,
   isAuthError,
   isAgentFallbackError,
@@ -1407,7 +1408,7 @@ export class SshConnection {
               )
             )
           }
-        }, CONNECT_TIMEOUT_MS)
+        }, KEYBOARD_INTERACTIVE_RESPONSE_TIMEOUT_MS)
       }
 
       // Why the fingerprint is still recorded: the relay uses the negotiated server key to isolate
@@ -1569,6 +1570,8 @@ export class SshConnection {
             `[ssh] Could not clear the handshake timeout for ${this.target.label}; keyboard-interactive prompts may be cut short`
           )
         }
+        const isKeyboardInteractiveRoundCancelled = (): boolean =>
+          connectGeneration !== this.connectGeneration || this.keyboardInteractiveCancelled
         collectKeyboardInteractiveResponses(
           {
             targetId: this.target.id,
@@ -1597,8 +1600,7 @@ export class SshConnection {
               }
               this.keyboardInteractiveCancelled = true
             },
-            isCancelled: () =>
-              connectGeneration !== this.connectGeneration || this.keyboardInteractiveCancelled,
+            isCancelled: isKeyboardInteractiveRoundCancelled,
             state: kiState
           },
           instructions,
@@ -1607,10 +1609,28 @@ export class SshConnection {
           (responses) => {
             // Why: a late answer must not write to a client that already
             // timed out or was torn down by disconnect/reconnect.
-            if (!settled) {
-              finish(responses ?? [])
-              armPostResponseTimeout()
+            if (settled) {
+              return
             }
+            // Why: a cancelled or superseded round has no server round-trip
+            // worth waiting on — arming the post-response timeout here would
+            // leave the connection "connecting" for up to
+            // KEYBOARD_INTERACTIVE_RESPONSE_TIMEOUT_MS after the user already
+            // dismissed the dialog (or a newer attempt already took over).
+            if (responses === null && isKeyboardInteractiveRoundCancelled()) {
+              finish([])
+              // Why the level tag: isAuthError() needs it to classify this as
+              // 'auth-failed' rather than a generic 'error' state, matching
+              // what a real server rejection of an empty answer would report.
+              const cancelledError = new Error(
+                `Keyboard-interactive authentication cancelled for ${this.target.label}`
+              ) as Error & { level?: string }
+              cancelledError.level = 'client-authentication'
+              onStartupError(cancelledError)
+              return
+            }
+            finish(responses ?? [])
+            armPostResponseTimeout()
           },
           (err) => {
             // Why: distinguishes a real failure (e.g. a broken credential

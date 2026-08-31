@@ -36,6 +36,12 @@ export const INITIAL_RETRY_ATTEMPTS = 5
 export const INITIAL_RETRY_DELAY_MS = 2000
 export const RECONNECT_BACKOFF_MS = [1000, 2000, 5000, 5000, 10000, 10000, 10000, 30000, 30000]
 export const CONNECT_TIMEOUT_MS = 30_000
+// Why not CONNECT_TIMEOUT_MS: this bounds the server's reply after a
+// keyboard-interactive answer, not the handshake itself — a Duo-push-style
+// approval can take a while after the user already responded, so it matches
+// ssh-passphrase.ts's 120s credential dialog timeout instead of the 30s
+// handshake budget.
+export const KEYBOARD_INTERACTIVE_RESPONSE_TIMEOUT_MS = 120_000
 
 const TRANSIENT_ERROR_CODES = new Set([
   'ETIMEDOUT',

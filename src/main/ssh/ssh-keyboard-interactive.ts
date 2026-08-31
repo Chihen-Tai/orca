@@ -55,11 +55,17 @@ export async function collectKeyboardInteractiveResponses(
   if (session.isCancelled()) {
     return null
   }
+  // Why: a missing prompter is a capability gap, not a user decision — it
+  // must return null WITHOUT calling markCancelled(), or SshConnection would
+  // treat it as an explicit decline and skip its passphrase/password rungs.
+  if (!session.requestCredential) {
+    return null
+  }
   const responses: string[] = []
   for (const prompt of prompts) {
     const value = isKeyboardInteractivePasswordPrompt(prompt)
       ? await answerPasswordPrompt(session)
-      : await session.requestCredential?.(
+      : await session.requestCredential(
           session.targetId,
           'keyboard-interactive',
           formatKeyboardInteractivePromptDetail(instructions, prompt.prompt),

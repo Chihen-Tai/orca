@@ -426,9 +426,11 @@ describe('SshConnection', () => {
         finish
       )
       await vi.waitFor(() => expect(finish).toHaveBeenCalledWith([]))
-      emitSshEvent('error', new Error('All configured authentication methods failed'))
 
-      await expect(connectPromise).rejects.toThrow('All configured authentication methods failed')
+      // Why no server error event: a cancelled prompt now fails the attempt
+      // immediately instead of waiting on a server round-trip that will
+      // never come from a user decision.
+      await expect(connectPromise).rejects.toThrow('Keyboard-interactive authentication cancelled')
       expect(onCredentialRequest).toHaveBeenCalledTimes(1)
       expect(conn.getState().status).toBe('auth-failed')
     })
