@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { rmSync, writeFileSync } from 'node:fs'
+import { readFileSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import type { Page } from '@stablyai/playwright-test'
 import { expect } from '@stablyai/playwright-test'
@@ -10,6 +10,7 @@ export type TerminalImeByteReader = {
   readyMarker: string
   resultPrefix: string
   scriptPath: string
+  outputPath: string
 }
 
 export function createTerminalImeByteReader(
@@ -20,14 +21,23 @@ export function createTerminalImeByteReader(
   const readyMarker = `ORCA_IME_READER_READY_${runId}`
   const resultPrefix = `ORCA_IME_BYTES_${runId}`
   const scriptPath = path.join(testRepoPath, `.orca-ime-byte-reader-${runId}.cjs`)
+  const outputPath = path.join(testRepoPath, `.orca-ime-byte-reader-${runId}.log`)
   const source = `
 const expectedLineCount = ${expectedLineCount}
 const readyMarker = ${JSON.stringify(readyMarker)}
 const resultPrefix = ${JSON.stringify(resultPrefix)}
+const outputPath = ${JSON.stringify(outputPath)}
+const fs = require('node:fs')
 let pending = Buffer.alloc(0)
 let receivedLineCount = 0
 
-process.stdout.write(readyMarker + '\\n')
+const emit = (line) => {
+  fs.appendFileSync(outputPath, line + '\\n')
+  process.stdout.write(line + '\\n')
+}
+
+fs.writeFileSync(outputPath, '')
+emit(readyMarker)
 process.stdin.on('data', (chunk) => {
   pending = Buffer.concat([pending, Buffer.from(chunk)])
   let newlineIndex = pending.indexOf(0x0a)
@@ -42,7 +52,7 @@ process.stdin.on('data', (chunk) => {
       : rawLine
     pending = pending.subarray(newlineIndex + 1)
     receivedLineCount += 1
-    process.stdout.write(resultPrefix + ':' + receivedLineCount + ':' + line.toString('hex') + '\\n')
+    emit(resultPrefix + ':' + receivedLineCount + ':' + line.toString('hex'))
     if (receivedLineCount === expectedLineCount) {
       process.exit(0)
     }
@@ -51,7 +61,7 @@ process.stdin.on('data', (chunk) => {
 })
 `
   writeFileSync(scriptPath, source)
-  return { expectedLineCount, readyMarker, resultPrefix, scriptPath }
+  return { expectedLineCount, readyMarker, resultPrefix, scriptPath, outputPath }
 }
 
 export async function startTerminalImeByteReader(
@@ -60,7 +70,10 @@ export async function startTerminalImeByteReader(
   reader: TerminalImeByteReader
 ): Promise<void> {
   await sendToTerminal(page, ptyId, `node ${JSON.stringify(reader.scriptPath)}\r`)
-  await waitForTerminalOutput(page, reader.readyMarker, 10_000, 20_000)
+  await expect
+    .poll(() => readFileSafely(reader.outputPath), { timeout: 10_000 })
+    .toContain(reader.readyMarker)
+  await waitForTerminalOutput(page, reader.readyMarker, 1_000, 20_000).catch(() => undefined)
 }
 
 export async function waitForTerminalImeBytes(
@@ -72,15 +85,11 @@ export async function waitForTerminalImeBytes(
   await expect
     .poll(
       async () => {
-        const terminal = await getTerminalContent(page, 100_000)
-        const resultPattern = new RegExp(`${reader.resultPrefix}:(\\d+):([0-9a-f]+)`, 'g')
-        const bySequence = new Map<number, string>()
-        for (const match of terminal.matchAll(resultPattern)) {
-          bySequence.set(Number(match[1]), match[2])
+        results = readTerminalImeByteResults(readFileSafely(reader.outputPath), reader.resultPrefix)
+        if (results.length < reader.expectedLineCount) {
+          const terminal = await getTerminalContent(page, 100_000)
+          results = readTerminalImeByteResults(terminal, reader.resultPrefix)
         }
-        results = [...bySequence.entries()]
-          .sort(([left], [right]) => left - right)
-          .map(([, hex]) => hex)
         return results.length
       },
       { timeout: timeoutMs, message: 'IME byte reader did not receive every expected line' }
@@ -91,4 +100,22 @@ export async function waitForTerminalImeBytes(
 
 export function removeTerminalImeByteReader(reader: TerminalImeByteReader): void {
   rmSync(reader.scriptPath, { force: true })
+  rmSync(reader.outputPath, { force: true })
+}
+
+function readFileSafely(filePath: string): string {
+  try {
+    return readFileSync(filePath, 'utf8')
+  } catch {
+    return ''
+  }
+}
+
+function readTerminalImeByteResults(source: string, resultPrefix: string): string[] {
+  const resultPattern = new RegExp(`${resultPrefix}:(\\d+):([0-9a-f]+)`, 'g')
+  const bySequence = new Map<number, string>()
+  for (const match of source.matchAll(resultPattern)) {
+    bySequence.set(Number(match[1]), match[2])
+  }
+  return [...bySequence.entries()].sort(([left], [right]) => left - right).map(([, hex]) => hex)
 }
