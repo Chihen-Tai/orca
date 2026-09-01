@@ -2,7 +2,13 @@
 import * as net from 'node:net'
 import { Client as SshClient } from 'ssh2'
 import type { ChildProcess } from 'node:child_process'
-import type { ClientChannel, ConnectConfig, Prompt, SFTPWrapper } from 'ssh2'
+import type {
+  ClientChannel,
+  ConnectConfig,
+  KeyboardInteractiveCallback,
+  Prompt,
+  SFTPWrapper
+} from 'ssh2'
 import type { SshTarget, SshConnectionState, SshConnectionStatus } from '../../shared/ssh-types'
 import {
   getOrcaControlSocketPath,
@@ -24,7 +30,7 @@ import {
   INITIAL_RETRY_DELAY_MS,
   RECONNECT_BACKOFF_MS,
   CONNECT_TIMEOUT_MS,
-  KEYBOARD_INTERACTIVE_RESPONSE_TIMEOUT_MS,
+  SSH_CREDENTIAL_TIMEOUT_MS,
   isTransientError,
   isAuthError,
   isAgentFallbackError,
@@ -36,7 +42,8 @@ import {
   wrapRemoteCommandForPosixShell,
   createSshOperationAbortError,
   type SshExecOptions,
-  type SshConnectionCallbacks
+  type SshConnectionCallbacks,
+  type SshCredentialKind
 } from './ssh-connection-utils'
 import { collectKeyboardInteractiveResponses } from './ssh-keyboard-interactive'
 import { resolveEffectiveProxy, spawnProxyCommand } from './ssh-proxy-command'
@@ -102,6 +109,9 @@ type SshRemoteFileOptions = {
 
 /** Bounds the trust-source reads that run before the handshake, which nothing else times out. */
 const HOST_KEY_SOURCE_READ_TIMEOUT_MS = 5_000
+const SSH_KEYBOARD_INTERACTIVE_MAX_ROUNDS = 4
+const SSH_KEYBOARD_INTERACTIVE_READY_TIMEOUT_MS = SSH_CREDENTIAL_TIMEOUT_MS + 5_000
+const SSH_KEYBOARD_INTERACTIVE_MAX_PROMPTS = 8
 
 // Upper bound on waiting for an aborted channel's open/close to settle before rejecting anyway.
 const ABORTED_CHANNEL_CLOSE_GRACE_MS = 5_000
@@ -183,6 +193,8 @@ export class SshConnection {
   private systemSshControlMasterDisabledForSession = false
   private systemSshGssapiOnlyForSession = false
   private useSystemSshTransport = false
+  private credentialAbortController = new AbortController()
+  private readonly pendingSsh2Clients = new Set<SshClient>()
   private state: SshConnectionState
   private callbacks: SshConnectionCallbacks
   private target: SshTarget
@@ -717,7 +729,7 @@ export class SshConnection {
    * racing the live attempt's own. Returning undefined drops each rung through to its throw.
    */
   private async requestCredential(
-    kind: 'passphrase' | 'password' | 'keyboard-interactive',
+    kind: SshCredentialKind,
     detail: string,
     connectGeneration: number,
     echo?: boolean
@@ -725,10 +737,68 @@ export class SshConnection {
     if (this.disposed || connectGeneration !== this.connectGeneration) {
       return undefined
     }
-    return this.callbacks.onCredentialRequest?.(this.target.id, kind, detail, echo)
+    return this.callbacks.onCredentialRequest?.(
+      this.target.id,
+      kind,
+      detail,
+      echo,
+      this.credentialAbortController.signal
+    )
+  }
+
+  private async answerKeyboardInteractive(
+    hostDetail: string,
+    name: string,
+    instructions: string,
+    prompts: Prompt[],
+    connectGeneration: number,
+    onPromptStart: () => void
+  ): Promise<string[] | null> {
+    if (prompts.length === 0 || prompts.length > SSH_KEYBOARD_INTERACTIVE_MAX_PROMPTS) {
+      return null
+    }
+    const heading = [name.trim(), instructions.trim()].filter(Boolean).join('\n')
+    const isCurrent = (): boolean => !this.disposed && connectGeneration === this.connectGeneration
+    const responses = await collectKeyboardInteractiveResponses(
+      {
+        targetId: this.target.id,
+        hostDetail,
+        // Why the coalesce: this.requestCredential returns undefined when this
+        // attempt has been superseded/disposed (see its doc comment above) —
+        // KeyboardInteractiveSession's contract matches
+        // SshConnectionCallbacks.onCredentialRequest, which never returns
+        // undefined, so a stale attempt reads as "no answer" (null) same as an
+        // explicit user cancellation.
+        requestCredential: async (_targetId, kind, detail, echo) =>
+          (await this.requestCredential(kind, detail, connectGeneration, echo)) ?? null,
+        getCachedPassword: () => this.cachedPassword,
+        setCachedPassword: (value) => {
+          this.cachedPassword = value
+        },
+        markCancelled: () => {
+          // Why: a superseded/disposed attempt still holds a pending prompt
+          // whose requestCredential resolves to undefined (see the coalesce
+          // above), which reads as a cancellation. Without this guard that
+          // stale attempt would set the flag on the live attempt's instance
+          // field and cause it to skip its own passphrase/password rungs as
+          // if the user had cancelled.
+          if (isCurrent()) {
+            this.keyboardInteractiveCancelled = true
+          }
+        },
+        isCancelled: () => !isCurrent() || this.keyboardInteractiveCancelled,
+        state: { passwordAutoAnswered: false }
+      },
+      heading,
+      prompts,
+      onPromptStart
+    )
+    return isCurrent() ? responses : null
   }
 
   private async attemptConnect(connectGeneration = ++this.connectGeneration): Promise<void> {
+    this.credentialAbortController.abort()
+    this.credentialAbortController = new AbortController()
     this.setState('connecting')
     this.proxyProcess?.kill()
     this.proxyProcess = null
@@ -1382,34 +1452,28 @@ export class SshConnection {
       : undefined
     return new Promise<void>((resolve, reject) => {
       const client = new SshClient()
+      this.pendingSsh2Clients.add(client)
       let settled = false
+      let startupTimer: ReturnType<typeof setTimeout> | null = null
+      let keyboardInteractiveRounds = 0
+      const clearStartupTimer = (): void => {
+        if (startupTimer) {
+          clearTimeout(startupTimer)
+          startupTimer = null
+        }
+      }
+      const rearmStartupTimer = (timeoutMs: number): void => {
+        clearStartupTimer()
+        startupTimer = setTimeout(() => {
+          const error = new Error('Timed out while waiting for SSH authentication')
+          Object.assign(error, { level: 'client-timeout' })
+          onStartupError(error)
+        }, timeoutMs)
+      }
       // Local to this attempt: an instance field would let a superseded attempt's rejection replace
       // the live attempt's error, and substituting a new Error drops ssh2's `code`, so a transient
       // ECONNRESET would stop being classified as retryable.
       let hostKeyRejection: HostKeyVerificationError | null = null
-      // Why: ssh2 never restarts its own handshake timer once a keyboard-interactive round begins
-      // (see the clearTimeout below), so a server that stops responding right after receiving our
-      // answers would otherwise leave doSsh2Connect — and the whole connect() call — pending forever.
-      let postResponseTimeout: NodeJS.Timeout | null = null
-      const clearPostResponseTimeout = (): void => {
-        if (postResponseTimeout) {
-          clearTimeout(postResponseTimeout)
-          postResponseTimeout = null
-        }
-      }
-      // Bound the server response after each keyboard-interactive answer.
-      const armPostResponseTimeout = (): void => {
-        clearPostResponseTimeout()
-        postResponseTimeout = setTimeout(() => {
-          if (!settled) {
-            onStartupError(
-              new Error(
-                `Timed out waiting for a response after keyboard-interactive authentication for ${this.target.label}`
-              )
-            )
-          }
-        }, KEYBOARD_INTERACTIVE_RESPONSE_TIMEOUT_MS)
-      }
 
       // Why the fingerprint is still recorded: the relay uses the negotiated server key to isolate
       // shared-home install locks without comparing PIDs from an unrelated SSH host. Its format is
@@ -1480,11 +1544,67 @@ export class SshConnection {
         }
       }
 
+      const onKeyboardInteractive = (
+        name: string,
+        instructions: string,
+        _instructionsLanguage: string,
+        prompts: Prompt[],
+        finish: KeyboardInteractiveCallback
+      ): void => {
+        keyboardInteractiveRounds += 1
+        if (keyboardInteractiveRounds > SSH_KEYBOARD_INTERACTIVE_MAX_ROUNDS) {
+          finish([])
+          return
+        }
+        rearmStartupTimer(SSH_KEYBOARD_INTERACTIVE_READY_TIMEOUT_MS)
+        void this.answerKeyboardInteractive(
+          config.host || this.target.label,
+          name,
+          instructions,
+          prompts,
+          connectGeneration,
+          () => rearmStartupTimer(SSH_KEYBOARD_INTERACTIVE_READY_TIMEOUT_MS)
+        ).then(
+          (responses) => {
+            // Why: a cancelled or superseded round has no server round-trip worth waiting on —
+            // finishing with an empty answer here would leave the connection "connecting" until
+            // the server eventually rejects it, well after the user already dismissed the dialog
+            // (or a newer attempt already took over). Still finish() unconditionally below even
+            // when already settled (e.g. disconnect() tore this attempt down through another
+            // path): ssh2 expects the keyboard-interactive callback answered regardless, and
+            // skipping it would leave that continuation dangling.
+            if (
+              responses === null &&
+              (connectGeneration !== this.connectGeneration || this.keyboardInteractiveCancelled)
+            ) {
+              finish([])
+              if (!settled) {
+                // Why the level tag: isAuthError() needs it to classify this as 'auth-failed'
+                // rather than a generic 'error' state, matching what a real server rejection of
+                // an empty answer would report.
+                const cancelledError = new Error(
+                  `Keyboard-interactive authentication cancelled for ${this.target.label}`
+                ) as Error & { level?: string }
+                cancelledError.level = 'client-authentication'
+                onStartupError(cancelledError)
+              }
+              return
+            }
+            const attemptIsCurrent =
+              !settled && !this.disposed && connectGeneration === this.connectGeneration
+            finish(attemptIsCurrent ? (responses ?? []) : [])
+          },
+          () => finish([])
+        )
+      }
+
       const cleanupStartupListeners = (): void => {
         client.off('ready', onReady)
         client.off('error', onStartupError)
         client.off('keyboard-interactive', onKeyboardInteractive)
-        clearPostResponseTimeout()
+        client.off('close', onStartupClose)
+        this.pendingSsh2Clients.delete(client)
+        clearStartupTimer()
       }
       const swallowLateStartupError = (): void => {
         // Why: ssh2 can emit another socket error while destroying a settled pre-handshake client.
@@ -1538,121 +1658,25 @@ export class SshConnection {
         reject(hostKeyRejection ?? err)
       }
 
-      // Why: MFA servers deliver their challenges via keyboard-interactive
-      // (RFC 4256), typically after password auth partially succeeds. Without
-      // a handler ssh2 skips the method and the whole auth fails with "All
-      // configured authentication methods failed".
-      const kiState = { passwordAutoAnswered: false }
-      const onKeyboardInteractive = (
-        _name: string,
-        instructions: string,
-        _lang: string,
-        prompts: Prompt[],
-        finish: (responses: string[]) => void
-      ): void => {
-        // Why: a fresh round means the server responded to our previous
-        // answers, so the bound set below after the last finish() no longer
-        // applies — this round gets its own bound once it's answered.
-        clearPostResponseTimeout()
-        // Why: readyTimeout budgets the network handshake, but these prompts
-        // wait on a human (push approval, OTP entry). A prompt proves the
-        // server is alive; from here the server's LoginGraceTime and the
-        // credential dialog's own 120s timeout bound the wait.
-        const readyTimeout = (client as unknown as { _readyTimeout?: NodeJS.Timeout })._readyTimeout
-        if (readyTimeout !== undefined) {
-          clearTimeout(readyTimeout)
-        } else {
-          // Why: this reaches into ssh2 internals — if the field moves, the
-          // handshake timeout silently cuts MFA prompts short again. Make
-          // that breakage visible without logging anything sensitive (target
-          // label only — never the prompt text or any credential value).
-          console.warn(
-            `[ssh] Could not clear the handshake timeout for ${this.target.label}; keyboard-interactive prompts may be cut short`
-          )
+      const onStartupClose = (): void => {
+        if (settled) {
+          return
         }
-        const isKeyboardInteractiveRoundCancelled = (): boolean =>
-          connectGeneration !== this.connectGeneration || this.keyboardInteractiveCancelled
-        collectKeyboardInteractiveResponses(
-          {
-            targetId: this.target.id,
-            hostDetail: config.host || this.target.label,
-            // Why the coalesce: this.requestCredential returns undefined when
-            // this attempt has been superseded/disposed (see its doc comment
-            // above) — KeyboardInteractiveSession's contract matches
-            // SshConnectionCallbacks.onCredentialRequest, which never returns
-            // undefined, so a stale attempt reads as "no answer" (null) same
-            // as an explicit user cancellation.
-            requestCredential: async (_targetId, kind, detail, echo) =>
-              (await this.requestCredential(kind, detail, connectGeneration, echo)) ?? null,
-            getCachedPassword: () => this.cachedPassword,
-            setCachedPassword: (value) => {
-              this.cachedPassword = value
-            },
-            markCancelled: () => {
-              // Why: a superseded/disposed attempt still holds a pending
-              // prompt whose requestCredential resolves to undefined (see
-              // the coalesce above), which reads as a cancellation. Without
-              // this guard that stale attempt would set the flag on the
-              // live attempt's instance field and cause it to skip its own
-              // passphrase/password rungs as if the user had cancelled.
-              if (connectGeneration !== this.connectGeneration) {
-                return
-              }
-              this.keyboardInteractiveCancelled = true
-            },
-            isCancelled: isKeyboardInteractiveRoundCancelled,
-            state: kiState
-          },
-          instructions,
-          prompts
-        ).then(
-          (responses) => {
-            // Why: a late answer must not write to a client that already
-            // timed out or was torn down by disconnect/reconnect.
-            if (settled) {
-              return
-            }
-            // Why: a cancelled or superseded round has no server round-trip
-            // worth waiting on — arming the post-response timeout here would
-            // leave the connection "connecting" for up to
-            // KEYBOARD_INTERACTIVE_RESPONSE_TIMEOUT_MS after the user already
-            // dismissed the dialog (or a newer attempt already took over).
-            if (responses === null && isKeyboardInteractiveRoundCancelled()) {
-              finish([])
-              // Why the level tag: isAuthError() needs it to classify this as
-              // 'auth-failed' rather than a generic 'error' state, matching
-              // what a real server rejection of an empty answer would report.
-              const cancelledError = new Error(
-                `Keyboard-interactive authentication cancelled for ${this.target.label}`
-              ) as Error & { level?: string }
-              cancelledError.level = 'client-authentication'
-              onStartupError(cancelledError)
-              return
-            }
-            finish(responses ?? [])
-            armPostResponseTimeout()
-          },
-          (err) => {
-            // Why: distinguishes a real failure (e.g. a broken credential
-            // prompter) from an expected user cancellation in the logs. Never
-            // logs the prompt text or any credential value.
-            console.warn(
-              `[ssh] keyboard-interactive handling failed for ${this.target.label}: ${
-                err instanceof Error ? err.message : String(err)
-              }`
-            )
-            if (!settled) {
-              finish([])
-              armPostResponseTimeout()
-            }
-          }
-        )
+        const error =
+          this.disposed || connectGeneration !== this.connectGeneration
+            ? this.createCancelledConnectAttemptError()
+            : Object.assign(new Error('SSH connection closed during authentication'), {
+                code: 'ECONNRESET'
+              })
+        onStartupError(error)
       }
 
+      client.on('keyboard-interactive', onKeyboardInteractive)
       client.on('ready', onReady)
       client.on('error', onStartupError)
-      client.on('keyboard-interactive', onKeyboardInteractive)
-      client.connect(config)
+      client.on('close', onStartupClose)
+      rearmStartupTimer(config.readyTimeout ?? CONNECT_TIMEOUT_MS)
+      client.connect({ ...config, readyTimeout: 0 })
     })
   }
 
@@ -1734,6 +1758,18 @@ export class SshConnection {
     }
   }
 
+  private closePendingSsh2Clients(): void {
+    for (const client of this.pendingSsh2Clients) {
+      try {
+        client.end()
+        client.destroy()
+      } catch {
+        // The startup socket may already be closing.
+      }
+    }
+    this.pendingSsh2Clients.clear()
+  }
+
   private closeTransportsForReconnect(): void {
     this.connectGeneration += 1
     const client = this.client
@@ -1744,6 +1780,9 @@ export class SshConnection {
     } catch {
       /* best-effort transport teardown */
     }
+    this.credentialAbortController.abort()
+    this.credentialAbortController = new AbortController()
+    this.closePendingSsh2Clients()
     this.proxyProcess?.kill()
     this.proxyProcess = null
     this.systemOperationAbortController.abort()
@@ -1824,6 +1863,8 @@ export class SshConnection {
     this.reconnectTimer = null
     this.cachedPassphrase = null
     this.cachedPassword = null
+    this.credentialAbortController.abort()
+    this.closePendingSsh2Clients()
     this.client?.end()
     this.client = null
     this.proxyProcess?.kill()

@@ -23,7 +23,8 @@ export type SshConnectionCallbacks = {
     targetId: string,
     kind: SshCredentialKind,
     detail: string,
-    echo?: boolean
+    echo?: boolean,
+    signal?: AbortSignal
   ) => Promise<string | null>
 }
 
@@ -36,12 +37,7 @@ export const INITIAL_RETRY_ATTEMPTS = 5
 export const INITIAL_RETRY_DELAY_MS = 2000
 export const RECONNECT_BACKOFF_MS = [1000, 2000, 5000, 5000, 10000, 10000, 10000, 30000, 30000]
 export const CONNECT_TIMEOUT_MS = 30_000
-// Why not CONNECT_TIMEOUT_MS: this bounds the server's reply after a
-// keyboard-interactive answer, not the handshake itself — a Duo-push-style
-// approval can take a while after the user already responded, so it matches
-// ssh-passphrase.ts's 120s credential dialog timeout instead of the 30s
-// handshake budget.
-export const KEYBOARD_INTERACTIVE_RESPONSE_TIMEOUT_MS = 120_000
+export const SSH_CREDENTIAL_TIMEOUT_MS = 120_000
 
 const TRANSIENT_ERROR_CODES = new Set([
   'ETIMEDOUT',
@@ -52,6 +48,10 @@ const TRANSIENT_ERROR_CODES = new Set([
   'EAI_AGAIN'
 ])
 
+function sshErrorLevel(err: Error): unknown {
+  return 'level' in err ? err.level : undefined
+}
+
 export function isAuthError(err: Error): boolean {
   const msg = err.message.toLowerCase()
   return (
@@ -61,16 +61,22 @@ export function isAuthError(err: Error): boolean {
     /permission denied(?:, please try again\.?| \([^)]*(?:publickey|password|keyboard-interactive|gssapi|hostbased)[^)]*\))/.test(
       msg
     ) ||
-    (err as { level?: string }).level === 'client-authentication'
+    sshErrorLevel(err) === 'client-authentication'
   )
 }
 
 export function isAgentFallbackError(err: Error): boolean {
-  return isAuthError(err) || (err as { level?: string }).level === 'agent'
+  return isAuthError(err) || sshErrorLevel(err) === 'agent'
 }
 
 export function isTransientError(err: Error): boolean {
-  const code = (err as NodeJS.ErrnoException).code
+  if (
+    sshErrorLevel(err) === 'client-timeout' ||
+    err.message === 'Timed out while waiting for SSH authentication'
+  ) {
+    return true
+  }
+  const code = 'code' in err && typeof err.code === 'string' ? err.code : undefined
   if (code && TRANSIENT_ERROR_CODES.has(code)) {
     return true
   }

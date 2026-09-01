@@ -126,7 +126,7 @@ export function SshPassphraseDialog(): React.JSX.Element | null {
           <DialogTitle className="text-sm">
             {isKeyboardInteractive
               ? translate(
-                  'auto.components.settings.SshPassphraseDialog.6d2b7b77b7',
+                  'auto.components.settings.SshPassphraseDialog.a21f9e74c0',
                   'SSH Verification'
                 )
               : isPassword
@@ -143,8 +143,8 @@ export function SshPassphraseDialog(): React.JSX.Element | null {
             {isKeyboardInteractive ? (
               <>
                 {translate(
-                  'auto.components.settings.SshPassphraseDialog.baf23a0fcf',
-                  'Respond to the verification prompt from'
+                  'auto.components.settings.SshPassphraseDialog.981352fb42',
+                  'Complete the verification challenge for'
                 )}{' '}
                 <span className="font-medium">{label}</span>
               </>
@@ -170,7 +170,7 @@ export function SshPassphraseDialog(): React.JSX.Element | null {
         <div>
           <label
             htmlFor="ssh-credential-input"
-            className="text-[11px] font-medium text-muted-foreground mb-1 block whitespace-pre-line break-words"
+            className="text-[11px] font-medium text-muted-foreground mb-1 block whitespace-pre-wrap break-words"
           >
             {isKeyboardInteractive
               ? request.detail
@@ -201,7 +201,7 @@ export function SshPassphraseDialog(): React.JSX.Element | null {
             placeholder={
               isKeyboardInteractive
                 ? translate(
-                    'auto.components.settings.SshPassphraseDialog.7effa48279',
+                    'auto.components.settings.SshPassphraseDialog.456516603b',
                     'Enter response'
                   )
                 : isPassword
@@ -232,9 +232,11 @@ export function SshPassphraseDialog(): React.JSX.Element | null {
             onClick={() => void handleSubmit()}
             disabled={(!value && !isKeyboardInteractive) || submitting}
           >
-            {isPassword || isKeyboardInteractive
-              ? translate('auto.components.settings.SshPassphraseDialog.bec2c1318f', 'Connect')
-              : translate('auto.components.settings.SshPassphraseDialog.405066423c', 'Unlock')}
+            {isKeyboardInteractive
+              ? translate('auto.components.settings.SshPassphraseDialog.c624f64b86', 'Continue')
+              : isPassword
+                ? translate('auto.components.settings.SshPassphraseDialog.bec2c1318f', 'Connect')
+                : translate('auto.components.settings.SshPassphraseDialog.405066423c', 'Unlock')}
           </Button>
         </DialogFooter>
       </DialogContent>

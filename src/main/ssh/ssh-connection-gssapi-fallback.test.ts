@@ -203,8 +203,9 @@ describe('SshConnection', () => {
     expect(onCredentialRequest).toHaveBeenCalledWith(
       'target-1',
       'password',
-      expect.any(String),
-      undefined
+      'example.com',
+      undefined,
+      expect.any(AbortSignal)
     )
   })
 

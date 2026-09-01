@@ -9,6 +9,8 @@ const PASSWORD_PROMPT = /password/i
 // Why: a one-time code answered with the cached login password would burn MFA
 // attempts (and can lock the account) on every reconnect.
 const ONE_TIME_PROMPT = /one.?time|otp/i
+// Why: bounds a malicious/misbehaving server's prompt text before it reaches the credential dialog.
+const PROMPT_DETAIL_MAX = 4_096
 
 export function isKeyboardInteractivePasswordPrompt(prompt: Prompt): boolean {
   return (
@@ -24,10 +26,11 @@ export function formatKeyboardInteractivePromptDetail(
 ): string {
   const trimmedInstructions = instructions.trim()
   const trimmedPrompt = promptText.trim()
-  if (!trimmedInstructions || !trimmedPrompt) {
-    return trimmedInstructions || trimmedPrompt
-  }
-  return `${trimmedInstructions}\n${trimmedPrompt}`
+  const detail =
+    !trimmedInstructions || !trimmedPrompt
+      ? trimmedInstructions || trimmedPrompt
+      : `${trimmedInstructions}\n${trimmedPrompt}`
+  return detail.slice(0, PROMPT_DETAIL_MAX)
 }
 
 export type KeyboardInteractiveSession = {
@@ -50,7 +53,8 @@ export type KeyboardInteractiveSession = {
 export async function collectKeyboardInteractiveResponses(
   session: KeyboardInteractiveSession,
   instructions: string,
-  prompts: Prompt[]
+  prompts: Prompt[],
+  onPromptStart?: () => void
 ): Promise<string[] | null> {
   if (session.isCancelled()) {
     return null
@@ -63,6 +67,7 @@ export async function collectKeyboardInteractiveResponses(
   }
   const responses: string[] = []
   for (const prompt of prompts) {
+    onPromptStart?.()
     const value = isKeyboardInteractivePasswordPrompt(prompt)
       ? await answerPasswordPrompt(session)
       : await session.requestCredential(
