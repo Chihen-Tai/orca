@@ -439,6 +439,53 @@ describe('SshConnection', () => {
       await reconnectPromise
     })
 
+    it('re-prompts instead of replaying the cached password on a second keyboard-interactive round', async () => {
+      vi.stubEnv('SSH_AUTH_SOCK', '')
+      ssh2Mock.connectSequence = ['silent']
+      const onCredentialRequest = vi.fn(async () => 'password-123')
+      const conn = new SshConnection(createTarget(), createCallbacks({ onCredentialRequest }))
+
+      const connectPromise = conn.connect()
+      await vi.waitFor(() =>
+        expect(eventHandlers.get('keyboard-interactive')?.size ?? 0).toBeGreaterThan(0)
+      )
+      const finish = vi.fn()
+      emitSshEvent(
+        'keyboard-interactive',
+        '',
+        '',
+        '',
+        [{ prompt: 'Password: ', echo: false }],
+        finish
+      )
+      await vi.waitFor(() => expect(finish).toHaveBeenCalledWith(['password-123']))
+      expect(onCredentialRequest).toHaveBeenCalledTimes(1)
+
+      // The server rejected that password and opened a new round for it. Auto-answering from the
+      // cache again would replay the rejected value up to the round cap without asking the user.
+      onCredentialRequest.mockClear()
+      const finish2 = vi.fn()
+      emitSshEvent(
+        'keyboard-interactive',
+        '',
+        '',
+        '',
+        [{ prompt: 'Password: ', echo: false }],
+        finish2
+      )
+      await vi.waitFor(() => expect(finish2).toHaveBeenCalledWith(['password-123']))
+      expect(onCredentialRequest).toHaveBeenCalledWith(
+        'target-1',
+        'password',
+        'example.com',
+        undefined,
+        expect.any(AbortSignal)
+      )
+
+      emitSshEvent('ready')
+      await connectPromise
+    })
+
     it('does not fall back to the password prompt after a cancelled keyboard-interactive prompt', async () => {
       vi.stubEnv('SSH_AUTH_SOCK', '')
       ssh2Mock.connectSequence = ['silent']

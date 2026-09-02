@@ -204,6 +204,10 @@ export class SshConnection {
   private cachedPassphrase: string | null = null
   private cachedPassword: string | null = null
   private keyboardInteractiveCancelled = false
+  // Why per attempt, not per round: the server re-prompts in a NEW round when it rejects the
+  // auto-answered cache, so a per-round reset would replay the same bad password up to the
+  // round cap without ever asking the user.
+  private keyboardInteractivePasswordState = { passwordAutoAnswered: false }
   private hostKeyFingerprint: string | undefined
   private connectGeneration = 0
 
@@ -787,7 +791,7 @@ export class SshConnection {
           }
         },
         isCancelled: () => !isCurrent() || this.keyboardInteractiveCancelled,
-        state: { passwordAutoAnswered: false }
+        state: this.keyboardInteractivePasswordState
       },
       heading,
       prompts,
@@ -803,6 +807,7 @@ export class SshConnection {
     this.proxyProcess?.kill()
     this.proxyProcess = null
     this.keyboardInteractiveCancelled = false
+    this.keyboardInteractivePasswordState = { passwordAutoAnswered: false }
 
     const resolved = await resolveWithSshG(this.target.configHost || this.target.label).catch(
       () => null
