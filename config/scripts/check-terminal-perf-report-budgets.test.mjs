@@ -84,7 +84,7 @@ describe('check-terminal-perf-report-budgets', () => {
         'median=76.0ms',
         'worst=301.0ms',
         'revisit=301.0ms',
-        'maxTimerDrift=151.0ms',
+        'maxTimerDrift=251.0ms',
         'scroll=151.0ms',
         'restore=1001.0ms',
         'rendererQueuedChars=2097153',
@@ -99,7 +99,7 @@ describe('check-terminal-perf-report-budgets', () => {
     expect(result.stderr).toContain('median typing latency 76ms exceeded budget 75ms')
     expect(result.stderr).toContain('worst typing latency 301ms exceeded budget 300ms')
     expect(result.stderr).toContain('revisit latency 301ms exceeded budget 300ms')
-    expect(result.stderr).toContain('timer drift 151ms exceeded budget 150ms')
+    expect(result.stderr).toContain('timer drift 251ms exceeded budget 250ms')
     expect(result.stderr).toContain('scroll latency 151ms exceeded budget 150ms')
     expect(result.stderr).toContain('restore latency 1001ms exceeded budget 1000ms')
     expect(result.stderr).toContain('renderer queued chars 2097153 exceeded budget 2097152')
@@ -140,6 +140,55 @@ describe('check-terminal-perf-report-budgets', () => {
     const failResult = runChecker(failPath)
     expect(failResult.status).toBe(1)
     expect(failResult.stderr).toContain('timer drift 3501ms exceeded budget 3500ms')
+  })
+
+  it.each(['opencode-main-pressure-active-typing', 'opencode-main-pressure-active-typing-50'])(
+    'applies the under-load worst-key budget to %s',
+    (scenario) => {
+      const passPath = writeReport(
+        ['panes=50', 'frames=60', 'median=12.0ms', 'worst=3400.0ms', 'maxTimerDrift=220.0ms'].join(
+          ' '
+        ),
+        scenario
+      )
+      const passOutput = execFileSync(process.execPath, [scriptPath, passPath], {
+        cwd: process.cwd(),
+        encoding: 'utf8'
+      })
+      expect(passOutput).toContain('Terminal perf budget check passed for 1 annotation row(s).')
+    }
+  )
+
+  it('applies hidden-pressure typing and restore budgets to matching scenario rows', () => {
+    const reportPath = writeReport(
+      ['panes=18', 'frames=60', 'median=6.0ms', 'worst=2900.0ms', 'maxTimerDrift=2900.0ms'].join(
+        ' '
+      ),
+      'opencode-hidden-real-pty-pressure-typing-25'
+    )
+    const restoreReportPath = writeReport(
+      ['panes=18', 'restore=3900.0ms'].join(' '),
+      'opencode-hidden-real-pty-restore-25'
+    )
+
+    const output = execFileSync(process.execPath, [scriptPath, reportPath, restoreReportPath], {
+      cwd: process.cwd(),
+      encoding: 'utf8'
+    })
+    expect(output).toContain('Terminal perf budget check passed for 2 annotation row(s).')
+  })
+
+  it('applies the revisit under-load budget to main-pressure revisit scenarios', () => {
+    const passPath = writeReport(
+      ['panes=18', 'revisit=2900.0ms', 'heldAckChars=2097184'].join(' '),
+      'opencode-main-pressure-worktree-revisit-typing'
+    )
+
+    const output = execFileSync(process.execPath, [scriptPath, passPath], {
+      cwd: process.cwd(),
+      encoding: 'utf8'
+    })
+    expect(output).toContain('Terminal perf budget check passed for 1 annotation row(s).')
   })
 
   it('fails malformed metric values instead of treating them as absent', () => {

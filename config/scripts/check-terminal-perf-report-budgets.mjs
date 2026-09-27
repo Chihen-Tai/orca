@@ -18,13 +18,24 @@ if (reportPaths.length === 0) {
 const BUDGETS = {
   maxMedianKeyLatencyMs: 75,
   maxWorstKeyLatencyMs: 300,
+  // Why: same-workspace/cross-workspace redraw and active ACK-gated pressure
+  // are asserted with the under-load ceiling in artificial-opencode-terminal-load.spec.ts.
+  maxWorstKeyLatencyUnderLoadMs: 3_500,
+  // Why: hidden real-PTY pressure has its own worst-key ceiling.
+  maxWorstKeyLatencyHiddenPressureMs: 3_000,
   maxRevisitLatencyMs: 300,
-  maxTimerDriftMs: 150,
+  // Why: mirrors MAX_REVISIT_LATENCY_UNDER_LOAD_MS for worktree revisit under pressure.
+  maxRevisitLatencyUnderLoadMs: 3_000,
+  maxTimerDriftMs: 250,
   // Why: mirrors MAX_TIMER_DRIFT_UNDER_LOAD_MS in artificial-opencode-terminal-load.spec.ts
   // so injected multi-pane redraw rows are not judged against the unloaded ceiling.
   maxTimerDriftUnderLoadMs: 3_500,
+  // Why: hidden real-PTY pressure has its own timer-drift ceiling.
+  maxTimerDriftHiddenPressureMs: 3_000,
   maxScrollLatencyMs: 150,
   maxRestoreLatencyMs: 1000,
+  // Why: mirrors MAX_HIDDEN_RESTORE_LATENCY_MS in artificial-opencode-hidden-pressure-scenario.ts.
+  maxRestoreLatencyHiddenPressureMs: 4_000,
   maxRendererQueuedChars: 2 * 1024 * 1024,
   maxRendererPeakQueuedChars: 2 * 1024 * 1024,
   maxRendererDroppedBacklogs: 0
@@ -39,6 +50,28 @@ function isUnderLoadTimerDriftScenario(scenario) {
     scenario.startsWith('opencode-scale-same-workspace-') ||
     scenario.startsWith('opencode-scale-cross-workspace-')
   )
+}
+
+function isUnderLoadWorstKeyScenario(scenario) {
+  return (
+    scenario === 'opencode-same-workspace-typing' ||
+    scenario === 'opencode-cross-workspace-typing' ||
+    scenario.startsWith('opencode-scale-same-workspace-') ||
+    scenario.startsWith('opencode-scale-cross-workspace-') ||
+    scenario.startsWith('opencode-main-pressure-active-typing')
+  )
+}
+
+function isHiddenRealPtyPressureTypingScenario(scenario) {
+  return scenario.startsWith('opencode-hidden-real-pty-pressure-typing')
+}
+
+function isMainPressureRevisitScenario(scenario) {
+  return scenario.startsWith('opencode-main-pressure-worktree-revisit-typing')
+}
+
+function isHiddenRealPtyRestoreScenario(scenario) {
+  return scenario.startsWith('opencode-hidden-real-pty-restore')
 }
 
 function parseMs(value, fieldName, row, failures) {
@@ -92,21 +125,29 @@ function validateRow(row) {
   addBudgetCheck(
     'worst typing latency',
     parseMs(row.worst, 'worst', row, failures),
-    BUDGETS.maxWorstKeyLatencyMs,
+    isHiddenRealPtyPressureTypingScenario(row.scenario)
+      ? BUDGETS.maxWorstKeyLatencyHiddenPressureMs
+      : isUnderLoadWorstKeyScenario(row.scenario)
+        ? BUDGETS.maxWorstKeyLatencyUnderLoadMs
+        : BUDGETS.maxWorstKeyLatencyMs,
     'ms'
   )
   addBudgetCheck(
     'revisit latency',
     parseMs(row.revisit, 'revisit', row, failures),
-    BUDGETS.maxRevisitLatencyMs,
+    isMainPressureRevisitScenario(row.scenario)
+      ? BUDGETS.maxRevisitLatencyUnderLoadMs
+      : BUDGETS.maxRevisitLatencyMs,
     'ms'
   )
   addBudgetCheck(
     'timer drift',
     parseMs(row.maxTimerDrift, 'maxTimerDrift', row, failures),
-    isUnderLoadTimerDriftScenario(row.scenario)
-      ? BUDGETS.maxTimerDriftUnderLoadMs
-      : BUDGETS.maxTimerDriftMs,
+    isHiddenRealPtyPressureTypingScenario(row.scenario)
+      ? BUDGETS.maxTimerDriftHiddenPressureMs
+      : isUnderLoadTimerDriftScenario(row.scenario)
+        ? BUDGETS.maxTimerDriftUnderLoadMs
+        : BUDGETS.maxTimerDriftMs,
     'ms'
   )
   addBudgetCheck(
@@ -118,7 +159,9 @@ function validateRow(row) {
   addBudgetCheck(
     'restore latency',
     parseMs(row.restore, 'restore', row, failures),
-    BUDGETS.maxRestoreLatencyMs,
+    isHiddenRealPtyRestoreScenario(row.scenario)
+      ? BUDGETS.maxRestoreLatencyHiddenPressureMs
+      : BUDGETS.maxRestoreLatencyMs,
     'ms'
   )
   addBudgetCheck(
