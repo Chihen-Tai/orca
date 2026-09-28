@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { toast } from 'sonner'
 import { extractIpcErrorMessage } from '@/lib/ipc-error'
 import { importExternalPathsToRuntime } from '@/runtime/runtime-file-client'
+import { createUploadProgressPanel } from '@/components/transfer-progress/upload-progress-panel'
 import { translate } from '@/i18n/i18n'
 import type { FileExplorerOperationOwner } from './file-explorer-types'
 import { captureFileExplorerOperationGuard } from './file-explorer-operation-owner'
@@ -65,6 +66,7 @@ export function useFileExplorerImport({
       const { paths, destinationDir } = data
 
       void (async () => {
+        const panel = createUploadProgressPanel()
         try {
           const operationGuard = captureFileExplorerOperationGuard(wtId, operationOwnerRef.current)
           operationGuard.assertCurrent()
@@ -80,7 +82,7 @@ export function useFileExplorerImport({
             },
             paths,
             destinationDir,
-            { assertCurrent: operationGuard.assertCurrent }
+            { assertCurrent: operationGuard.assertCurrent, progress: panel.progress }
           )
 
           // Refresh the destination directory once per gesture
@@ -91,7 +93,10 @@ export function useFileExplorerImport({
           // snap the tree viewport away from the user's drop target.
           const imported = results.filter((r) => r.status === 'imported')
           const skipped = results.filter((r) => r.status === 'skipped')
-          const failed = results.filter((r) => r.status === 'failed')
+          // Why: a cancel is the user's own decision, not a failure to report back.
+          const failed = results.filter(
+            (r) => r.status === 'failed' && !panel.cancelledSourcePaths.has(r.sourcePath)
+          )
 
           if (imported.length > 0) {
             setSelectedPathRef.current(imported[0].destPath)
@@ -117,6 +122,7 @@ export function useFileExplorerImport({
             )
           }
         } catch (err) {
+          panel.close()
           toast.error(extractIpcErrorMessage(err, 'Failed to import files.'))
         } finally {
           clearNativeDragStateRef.current()

@@ -1,39 +1,40 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
-import { ChevronDownIcon, FileIcon, UploadIcon, XIcon } from 'lucide-react'
+import { ChevronDownIcon, DownloadIcon, FileIcon, UploadIcon, XIcon } from 'lucide-react'
 import { Progress } from '@/components/ui/progress'
 import { cn } from '@/lib/utils'
 import { translate } from '@/i18n/i18n'
 import {
-  getRuntimeUploadSession,
-  subscribeToRuntimeUploadSessions,
-  summarizeRuntimeUploadSession,
-  toggleRuntimeUploadCollapsed,
-  type RuntimeUploadRow
-} from '@/runtime/runtime-upload-session-state'
-import { formatTransferredOfTotal, toPercent } from './terminal-drop-upload-progress'
-import { formatTerminalDropUploadHeading } from './terminal-drop-upload-heading'
+  getTransferSession,
+  subscribeToTransferSessions,
+  summarizeTransferSession,
+  toggleTransferCollapsed,
+  type TransferDirection,
+  type TransferRow
+} from './transfer-session-state'
+import { formatTransferredOfTotal, toPercent } from './transfer-progress-format'
+import { formatTransferProgressHeading } from './transfer-progress-heading'
 
-// Long enough to read the outcome, short enough not to linger over the terminal.
+// Long enough to read the outcome, short enough not to linger over the workspace.
 const SETTLED_HOLD_MS = 1200
 const EXIT_ANIMATION_MS = 200
 
 type Props = {
   sessionId: string
-  onCancel: (uploadId: string) => void
+  onCancel: (transferId: string) => void
   /** Closes the toast; the panel owns the timing so the exit is not cut short. */
   onDismiss: () => void
   /** Re-issues the toast: sonner re-measures height only on a new element identity. */
   onLayoutChange: () => void
 }
 
-export function TerminalDropUploadToast({
+export function TransferProgressPanel({
   sessionId,
   onCancel,
   onDismiss,
   onLayoutChange
 }: Props): React.JSX.Element | null {
-  const session = useSyncExternalStore(subscribeToRuntimeUploadSessions, () =>
-    getRuntimeUploadSession(sessionId)
+  const session = useSyncExternalStore(subscribeToTransferSessions, () =>
+    getTransferSession(sessionId)
   )
   const [leaving, setLeaving] = useState(false)
   const settled = session?.settled === true
@@ -60,8 +61,10 @@ export function TerminalDropUploadToast({
     return null
   }
   const collapsed = session.collapsed
-  const summary = summarizeRuntimeUploadSession(session)
-  const heading = formatTerminalDropUploadHeading({
+  const summary = summarizeTransferSession(session)
+  const DirectionIcon = session.direction === 'upload' ? UploadIcon : DownloadIcon
+  const heading = formatTransferProgressHeading({
+    direction: session.direction,
     rowCount: session.rows.length,
     settled: session.settled,
     doneCount: summary.doneCount,
@@ -82,7 +85,7 @@ export function TerminalDropUploadToast({
     >
       <div className="flex items-center gap-3 px-3 py-2.5">
         <span className="flex size-7 shrink-0 items-center justify-center rounded-full border border-border">
-          <UploadIcon className="size-3.5" aria-hidden />
+          <DirectionIcon className="size-3.5" aria-hidden />
         </span>
         <span className="min-w-0 flex-1 truncate text-sm">{heading}</span>
         {/* Fixed width so the row never reflows as the number gains digits. */}
@@ -93,7 +96,7 @@ export function TerminalDropUploadToast({
           type="button"
           hidden={session.settled}
           onClick={() => {
-            toggleRuntimeUploadCollapsed(sessionId)
+            toggleTransferCollapsed(sessionId)
             onLayoutChange()
           }}
           aria-expanded={!collapsed}
@@ -120,7 +123,12 @@ export function TerminalDropUploadToast({
       {!collapsed && (
         <ul className="border-t border-border">
           {session.rows.map((row) => (
-            <UploadRowItem key={row.uploadId} row={row} onCancel={onCancel} />
+            <TransferRowItem
+              key={row.transferId}
+              row={row}
+              direction={session.direction}
+              onCancel={onCancel}
+            />
           ))}
         </ul>
       )}
@@ -128,15 +136,17 @@ export function TerminalDropUploadToast({
   )
 }
 
-function UploadRowItem({
+function TransferRowItem({
   row,
+  direction,
   onCancel
 }: {
-  row: RuntimeUploadRow
-  onCancel: (uploadId: string) => void
+  row: TransferRow
+  direction: TransferDirection
+  onCancel: (transferId: string) => void
 }): React.JSX.Element {
   const percent = toPercent(row.sentBytes, row.totalBytes)
-  const inactive = row.status !== 'uploading'
+  const inactive = row.status !== 'active'
 
   return (
     <li className="flex items-center gap-3 px-3 py-2.5">
@@ -160,11 +170,15 @@ function UploadRowItem({
       <button
         type="button"
         disabled={inactive}
-        onClick={() => onCancel(row.uploadId)}
-        aria-label={translate(
-          'auto.components.terminal.pane.terminal.drop.upload.cancel',
-          'Cancel upload'
-        )}
+        onClick={() => onCancel(row.transferId)}
+        aria-label={
+          direction === 'upload'
+            ? translate(
+                'auto.components.terminal.pane.terminal.drop.upload.cancel',
+                'Cancel upload'
+              )
+            : translate('transferProgress.cancelDownload', 'Cancel download')
+        }
         className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-0"
       >
         <XIcon className="size-4" />
@@ -173,7 +187,7 @@ function UploadRowItem({
   )
 }
 
-function rowSubLabel(row: RuntimeUploadRow): string {
+function rowSubLabel(row: TransferRow): string {
   if (row.status === 'cancelled') {
     return translate('auto.components.terminal.pane.terminal.drop.upload.cancelled', 'Cancelled')
   }

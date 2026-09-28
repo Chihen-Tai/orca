@@ -63,7 +63,8 @@ export type RuntimeImportProgressRow = {
 
 export type RuntimeImportProgressHandlers = {
   onStart: (rows: RuntimeImportProgressRow[]) => void
-  onRowProgress: (uploadId: string, sentBytes: number) => void
+  /** totalBytes is set when the size is only known once the transfer starts (SSH). */
+  onRowProgress: (uploadId: string, sentBytes: number, totalBytes?: number) => void
   onRowSettled: (uploadId: string, status: 'done' | 'failed') => void
   onFinish: () => void
 }

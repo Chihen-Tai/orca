@@ -76,9 +76,9 @@ vi.mock('./terminal-input-activity', () => ({
 }))
 
 import {
-  endRuntimeUploadSession,
-  getRuntimeUploadSession
-} from '@/runtime/runtime-upload-session-state'
+  endTransferSession,
+  getTransferSession
+} from '@/components/transfer-progress/transfer-session-state'
 import { handleTerminalFileDrop } from './terminal-drop-handler'
 import { wrapTerminalBracketedPasteText } from './terminal-bracketed-paste'
 
@@ -126,13 +126,16 @@ function announceRowThenResolve(value: unknown) {
 describe('handleTerminalFileDrop', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    endRuntimeUploadSession('session-1')
+    endTransferSession('session-1')
     mocks.storeState.activeRepoId = 'repo1'
     mocks.storeState.activeWorktreeId = 'wt-1'
     vi.stubGlobal('window', {
       api: {
         fs: {
-          resolveDroppedPathsForAgent: mocks.resolveDroppedPathsForAgent
+          resolveDroppedPathsForAgent: mocks.resolveDroppedPathsForAgent,
+          onUploadProgress: () => () => {},
+          cancelRuntimeUpload: vi.fn().mockResolvedValue(undefined),
+          releaseRuntimeUpload: vi.fn().mockResolvedValue(undefined)
         }
       }
     })
@@ -213,7 +216,7 @@ describe('handleTerminalFileDrop', () => {
     expect(mocks.recordTerminalUserInputForLeaf).toHaveBeenCalledWith('tab-1', 'leaf-1')
     expect(mocks.toastError).not.toHaveBeenCalled()
     expect(mocks.toastCustom).toHaveBeenCalled()
-    const session = getRuntimeUploadSession('session-1')
+    const session = getTransferSession('session-1')
     expect(session?.settled).toBe(true)
     expect(session?.rows).toEqual([expect.objectContaining({ status: 'done', sentBytes: 10 })])
     // The panel holds briefly to show the outcome and dismisses itself; cutting
@@ -309,7 +312,7 @@ describe('handleTerminalFileDrop', () => {
 
     expect(mocks.toastDismiss).toHaveBeenCalledWith('toast-1')
     expect(mocks.toastError).toHaveBeenCalled()
-    expect(getRuntimeUploadSession('session-1')).toBeUndefined()
+    expect(getTransferSession('session-1')).toBeUndefined()
   })
 
   it('uses Windows shell paths for forward-slash UNC runtime worktrees', async () => {
@@ -734,7 +737,8 @@ describe('handleTerminalFileDrop', () => {
       connectionId: 'ssh-win',
       expectedExecutionHostId: 'ssh:ssh-win',
       expectedSshTargetId: 'ssh-win',
-      expectedSshConnectionGeneration: 4
+      expectedSshConnectionGeneration: 4,
+      uploadIds: expect.any(Object)
     })
     expect(sendInput).toHaveBeenCalledWith('"C:\\Remote Repo\\A&B.txt" ', 'driving')
     expect(focus).toHaveBeenCalled()

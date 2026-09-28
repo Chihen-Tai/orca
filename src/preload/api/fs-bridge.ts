@@ -15,6 +15,7 @@ import type {
   LocalLogTailReadResult,
   LocalLogTailWatchArgs
 } from '../../shared/local-log-tail-types'
+import type { RemoteDownloadProgress } from '../../shared/remote-download-progress'
 import type { PreloadApi } from '../api-types'
 
 export const fsApi = {
@@ -53,11 +54,13 @@ export const fsApi = {
   downloadFile: (args: {
     filePath: string
     connectionId: string
+    downloadId?: string
   }): Promise<{ canceled: true } | { canceled: false; destinationPath: string }> =>
     ipcRenderer.invoke('fs:downloadFile', args),
   downloadFolder: (args: {
     dirPath: string
     connectionId: string
+    downloadId?: string
   }): Promise<{ canceled: true } | { canceled: false; destinationPath: string }> =>
     ipcRenderer.invoke('fs:downloadFolder', args),
   saveDownloadedFile: (args: {
@@ -81,6 +84,14 @@ export const fsApi = {
     ipcRenderer.invoke('fs:finishDownloadedFile', args),
   cancelDownloadedFile: (args: { transferId: string }): Promise<{ ok: true }> =>
     ipcRenderer.invoke('fs:cancelDownloadedFile', args),
+  cancelDownload: (args: { downloadId: string }): Promise<{ ok: true; canceled: boolean }> =>
+    ipcRenderer.invoke('fs:cancelDownload', args),
+  onDownloadProgress: (callback: (progress: RemoteDownloadProgress) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, progress: RemoteDownloadProgress): void =>
+      callback(progress)
+    ipcRenderer.on('fs:downloadProgress', listener)
+    return () => ipcRenderer.removeListener('fs:downloadProgress', listener)
+  },
   listMarkdownDocuments: (args: {
     rootPath: string
     connectionId?: string
@@ -157,6 +168,8 @@ export const fsApi = {
       destDir: string
       connectionId?: string
       ensureDir?: boolean
+      /** Per-source ids for SSH upload progress and cancel; see fs:uploadProgress. */
+      uploadIds?: Record<string, string>
     } & SshMutationExpectation
   ): Promise<{ results: ImportItemResult[] }> => ipcRenderer.invoke('fs:importExternalPaths', args),
   stageExternalPathsForRuntimeUpload: (args: {
@@ -185,6 +198,7 @@ export const fsApi = {
       paths: string[]
       worktreePath: string
       connectionId?: string
+      uploadIds?: Record<string, string>
     } & SshMutationExpectation
   ): Promise<ResolveDroppedPathsResult> =>
     ipcRenderer.invoke('fs:resolveDroppedPathsForAgent', args),

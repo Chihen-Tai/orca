@@ -7,6 +7,7 @@ import { resolveAuthorizedPath } from './filesystem-auth'
 import { requireSshFilesystemProvider } from '../providers/ssh-filesystem-dispatch'
 import { resolveLocalDroppedPathsForAgent } from './dropped-path-resolution'
 import { importExternalPathsSsh } from './filesystem-import-ssh'
+import { toSshImportProgressTarget } from './filesystem-import-ssh-progress'
 import type { SshMutationExpectation } from '../../shared/ssh-types'
 import { assertSshMutationExpectation } from '../ssh/ssh-connection-generation'
 import { renameLocalPathSerializedByDestination } from '../destination-serialized-local-rename'
@@ -158,12 +159,13 @@ export function registerFilesystemMutationHandlers(store: Store): void {
   ipcMain.handle(
     'fs:importExternalPaths',
     async (
-      _event,
+      event,
       args: {
         sourcePaths: string[]
         destDir: string
         connectionId?: string
         ensureDir?: boolean
+        uploadIds?: Record<string, string>
       } & SshMutationExpectation
     ): Promise<{ results: ImportItemResult[] }> => {
       assertSshMutationExpectation(
@@ -175,6 +177,7 @@ export function registerFilesystemMutationHandlers(store: Store): void {
       if (args.connectionId) {
         return importExternalPathsSsh(args.sourcePaths, args.destDir, args.connectionId, {
           ensureDir: args.ensureDir,
+          progress: toSshImportProgressTarget(event, args.uploadIds),
           assertCurrent: () =>
             assertSshMutationExpectation(
               args.connectionId,
@@ -299,11 +302,12 @@ export function registerFilesystemMutationHandlers(store: Store): void {
   ipcMain.handle(
     'fs:resolveDroppedPathsForAgent',
     async (
-      _event,
+      event,
       args: {
         paths: string[]
         worktreePath: string
         connectionId?: string
+        uploadIds?: Record<string, string>
       } & SshMutationExpectation
     ): Promise<ResolveDroppedPathsResult> => {
       assertSshMutationExpectation(
@@ -325,6 +329,7 @@ export function registerFilesystemMutationHandlers(store: Store): void {
       const destDir = `${worktreePath}/.orca/drops`
       const { results } = await importExternalPathsSsh(args.paths, destDir, args.connectionId, {
         ensureDir: true,
+        progress: toSshImportProgressTarget(event, args.uploadIds),
         assertCurrent: () =>
           assertSshMutationExpectation(
             args.connectionId,

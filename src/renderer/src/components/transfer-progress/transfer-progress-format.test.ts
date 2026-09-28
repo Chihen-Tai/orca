@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatTransferredOfTotal, toPercent } from './terminal-drop-upload-progress'
+import { formatTransferredOfTotal, toPercent } from './transfer-progress-format'
 
 const MB = 1024 * 1024
 
@@ -27,6 +27,7 @@ describe('formatTransferredOfTotal', () => {
 
   it('handles a zero-byte drop without dividing by zero', () => {
     expect(formatTransferredOfTotal(0, 0)).toBe('0 B')
+    expect(formatTransferredOfTotal(3 * 1024 * 1024, 0)).toBe('3.00 MB')
   })
 })
 

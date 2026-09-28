@@ -41,13 +41,14 @@ type SystemSshWriteBufferOptions = SystemSshOperationOptions & {
 
 type SystemSshUploadFileOptions = SystemSshOperationOptions & {
   exclusive?: boolean
+  onBytesTransferred?: (bytes: number) => void
 }
 
 export async function downloadFileViaSystemSsh(
   target: SshTarget,
   remotePath: string,
   localPath: string,
-  options?: SystemSshOperationOptions
+  options?: SystemSshOperationOptions & { onBytesTransferred?: (bytes: number) => void }
 ): Promise<void> {
   throwIfAborted(options?.signal)
   const isWindows = options?.hostPlatform && isWindowsRemoteHost(options.hostPlatform)
@@ -59,6 +60,10 @@ export async function downloadFileViaSystemSsh(
     ...getSystemSshBuildArgsFromOperationOptions(options)
   })
   const output = createWriteStream(localPath, { flags: 'wx' })
+  const onBytesTransferred = options?.onBytesTransferred
+  if (onBytesTransferred) {
+    channel.on('data', (chunk: Buffer) => onBytesTransferred(chunk.length))
+  }
   try {
     await awaitWithSystemSshAbort(
       options?.signal,
@@ -149,6 +154,7 @@ export async function uploadFileViaSystemSsh(
         readChunk: async (offset, maxBytes) => {
           const buffer = Buffer.allocUnsafe(Math.min(maxBytes, openedStat.size - offset))
           const { bytesRead } = await handle.read(buffer, 0, buffer.length, offset)
+          options?.onBytesTransferred?.(bytesRead)
           return buffer.subarray(0, bytesRead)
         },
         // The verified local file is already exactly the payload, so sftp sends it as is.
@@ -164,6 +170,10 @@ export async function uploadFileViaSystemSsh(
       getSystemSshBuildArgsFromOperationOptions(options)
     )
     const input = handle.createReadStream({ autoClose: false })
+    const onBytesTransferred = options?.onBytesTransferred
+    if (onBytesTransferred) {
+      input.on('data', (chunk: Buffer | string) => onBytesTransferred(chunk.length))
+    }
     try {
       await awaitWithSystemSshAbort(
         options?.signal,

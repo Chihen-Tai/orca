@@ -22,6 +22,7 @@ import {
 } from './runtime-file-upload-client'
 import { getActiveRuntimeTarget } from './runtime-rpc-client'
 import { toRuntimeWorktreeSelector } from './runtime-worktree-selector'
+import { runSshUploadWithProgress } from './ssh-upload-progress-client'
 import {
   createRuntimeUploadProgressTracker,
   sumSourceUploadBytes,
@@ -42,13 +43,25 @@ export async function importExternalPathsToRuntime(
 ): Promise<{ results: ImportItemResult[] }> {
   const target = getActiveRuntimeTarget(context.settings)
   if (target.kind !== 'environment' || !context.worktreeId || !context.worktreePath) {
-    return window.api.fs.importExternalPaths(
-      withSshMutationExpectation(context, {
-        sourcePaths,
-        destDir: destinationDir,
-        connectionId: context.connectionId,
-        ensureDir: options?.ensureDestinationDir
-      })
+    // Why: only SSH imports stream through main; local copies finish too fast to track.
+    const progress = context.connectionId ? options?.progress : undefined
+    return runSshUploadWithProgress(
+      sourcePaths,
+      progress,
+      (uploadIds) =>
+        window.api.fs.importExternalPaths(
+          withSshMutationExpectation(context, {
+            sourcePaths,
+            destDir: destinationDir,
+            connectionId: context.connectionId,
+            ensureDir: options?.ensureDestinationDir,
+            ...(uploadIds ? { uploadIds } : {})
+          })
+        ),
+      ({ results }, sourcePath) =>
+        results.some((result) => result.sourcePath === sourcePath && result.status === 'imported')
+          ? 'done'
+          : 'failed'
     )
   }
 

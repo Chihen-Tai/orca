@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { toast } from 'sonner'
+import { createUploadProgressPanel } from '@/components/transfer-progress/upload-progress-panel'
 import { detectLanguage } from '@/lib/language-detect'
 import { isPathInsideWorktree, toWorktreeRelativePath } from '@/lib/terminal-links'
 import { useAppStore } from '@/store'
@@ -104,6 +105,7 @@ export function useGlobalFileDrop(): void {
           return
         }
         void (async () => {
+          const panel = createUploadProgressPanel()
           try {
             // Why: OS file drops provide client-local paths. Remote runtime and
             // SSH editors must upload into the server worktree before opening.
@@ -112,7 +114,7 @@ export function useGlobalFileDrop(): void {
               fileContext,
               data.paths,
               destinationDir,
-              { ensureDestinationDir: true }
+              { ensureDestinationDir: true, progress: panel.progress }
             )
             const imported = results.filter((result) => result.status === 'imported')
             for (const result of imported) {
@@ -133,7 +135,12 @@ export function useGlobalFileDrop(): void {
                 { suppressActiveRuntimeFallback: runtimeEnvironmentId === null }
               )
             }
-            if (results.some((result) => result.status !== 'imported')) {
+            if (
+              results.some(
+                (result) =>
+                  result.status !== 'imported' && !panel.cancelledSourcePaths.has(result.sourcePath)
+              )
+            ) {
               toast.error(
                 translate(
                   'auto.hooks.useGlobalFileDrop.d720e2f855',
@@ -142,6 +149,7 @@ export function useGlobalFileDrop(): void {
               )
             }
           } catch {
+            panel.close()
             toast.error(
               translate(
                 'auto.hooks.useGlobalFileDrop.38c9f034ff',

@@ -3350,18 +3350,7 @@
                 "collapse": "Hide files",
                 "cancel": "Cancel upload",
                 "cancelled": "Cancelled",
-                "failed": "Failed",
-                "heading": {
-                  "cancelled": "Upload cancelled",
-                  "failed": "Upload failed",
-                  "partial": "Uploaded {{doneCount}} of {{rowCount}} to runtime",
-                  "done": "Uploaded {{count}} files to runtime",
-                  "done_one": "Uploaded {{count}} file to runtime",
-                  "done_other": "Uploaded {{count}} files to runtime",
-                  "uploading": "Uploading {{count}} files to runtime",
-                  "uploading_one": "Uploading {{count}} file to runtime",
-                  "uploading_other": "Uploading {{count}} files to runtime"
-                }
+                "failed": "Failed"
               }
             }
           },
@@ -18516,5 +18505,32 @@
   },
   "common": {
     "retry": "Retry"
+  },
+  "transferProgress": {
+    "cancelDownload": "Cancel download",
+    "heading": {
+      "upload": {
+        "active": "Uploading {{count}} files",
+        "active_one": "Uploading {{count}} file",
+        "active_other": "Uploading {{count}} files",
+        "done": "Uploaded {{count}} files",
+        "done_one": "Uploaded {{count}} file",
+        "done_other": "Uploaded {{count}} files",
+        "partial": "Uploaded {{doneCount}} of {{rowCount}}",
+        "cancelled": "Upload cancelled",
+        "failed": "Upload failed"
+      },
+      "download": {
+        "active": "Downloading {{count}} files",
+        "active_one": "Downloading {{count}} file",
+        "active_other": "Downloading {{count}} files",
+        "done": "Downloaded {{count}} files",
+        "done_one": "Downloaded {{count}} file",
+        "done_other": "Downloaded {{count}} files",
+        "partial": "Downloaded {{doneCount}} of {{rowCount}}",
+        "cancelled": "Download cancelled",
+        "failed": "Download failed"
+      }
+    }
   }
 }

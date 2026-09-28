@@ -1,17 +1,20 @@
-export type RuntimeUploadRowStatus = 'uploading' | 'done' | 'cancelled' | 'failed'
+export type TransferDirection = 'upload' | 'download'
 
-export type RuntimeUploadRow = {
-  /** Id every file of one dropped source streams under; also the cancel handle. */
-  uploadId: string
+export type TransferRowStatus = 'active' | 'done' | 'cancelled' | 'failed'
+
+export type TransferRow = {
+  /** Id every file of one source moves under; also the cancel handle. */
+  transferId: string
   name: string
   sentBytes: number
   totalBytes: number
-  status: RuntimeUploadRowStatus
+  status: TransferRowStatus
 }
 
-export type RuntimeUploadSession = {
+export type TransferSession = {
   sessionId: string
-  rows: RuntimeUploadRow[]
+  direction: TransferDirection
+  rows: TransferRow[]
   /** Every row has stopped moving; the panel shows its outcome, then leaves. */
   settled: boolean
   /** Kept here, not in the panel: toggling it remounts the panel to re-measure. */
@@ -20,7 +23,7 @@ export type RuntimeUploadSession = {
 
 type Listener = () => void
 
-const sessions = new Map<string, RuntimeUploadSession>()
+const sessions = new Map<string, TransferSession>()
 const listeners = new Set<Listener>()
 
 function emit(): void {
@@ -29,24 +32,28 @@ function emit(): void {
   }
 }
 
-export function subscribeToRuntimeUploadSessions(listener: Listener): () => void {
+export function subscribeToTransferSessions(listener: Listener): () => void {
   listeners.add(listener)
   return () => {
     listeners.delete(listener)
   }
 }
 
-export function getRuntimeUploadSession(sessionId: string): RuntimeUploadSession | undefined {
+export function getTransferSession(sessionId: string): TransferSession | undefined {
   return sessions.get(sessionId)
 }
 
-export function startRuntimeUploadSession(sessionId: string, rows: RuntimeUploadRow[]): void {
-  sessions.set(sessionId, { sessionId, rows, settled: false, collapsed: false })
+export function startTransferSession(
+  sessionId: string,
+  direction: TransferDirection,
+  rows: TransferRow[]
+): void {
+  sessions.set(sessionId, { sessionId, direction, rows, settled: false, collapsed: false })
   emit()
 }
 
 /** Keeps the rows so the panel can state how the drop ended before it closes. */
-export function settleRuntimeUploadSession(sessionId: string): void {
+export function settleTransferSession(sessionId: string): void {
   const session = sessions.get(sessionId)
   if (!session || session.settled) {
     return
@@ -55,7 +62,7 @@ export function settleRuntimeUploadSession(sessionId: string): void {
   emit()
 }
 
-export function toggleRuntimeUploadCollapsed(sessionId: string): void {
+export function toggleTransferCollapsed(sessionId: string): void {
   const session = sessions.get(sessionId)
   if (!session) {
     return
@@ -64,7 +71,7 @@ export function toggleRuntimeUploadCollapsed(sessionId: string): void {
   emit()
 }
 
-export function endRuntimeUploadSession(sessionId: string): void {
+export function endTransferSession(sessionId: string): void {
   sessions.delete(sessionId)
   emit()
 }
@@ -75,10 +82,10 @@ export function endRuntimeUploadSession(sessionId: string): void {
  * Rows are swapped rather than mutated so `useSyncExternalStore` sees a new
  * reference; mutating in place renders a stale bar that never moves.
  */
-export function updateRuntimeUploadRow(
+export function updateTransferRow(
   sessionId: string,
-  uploadId: string,
-  patch: Partial<Omit<RuntimeUploadRow, 'uploadId'>>
+  transferId: string,
+  patch: Partial<Omit<TransferRow, 'transferId'>>
 ): void {
   const session = sessions.get(sessionId)
   if (!session) {
@@ -86,12 +93,12 @@ export function updateRuntimeUploadRow(
   }
   let changed = false
   const rows = session.rows.map((row) => {
-    if (row.uploadId !== uploadId) {
+    if (row.transferId !== transferId) {
       return row
     }
-    // Why: a cancelled or failed row must not be dragged back to 'uploading' by
+    // Why: a cancelled or failed row must not be dragged back to 'active' by
     // a progress event that was already in flight when the user clicked.
-    if (row.status !== 'uploading') {
+    if (row.status !== 'active') {
       return row
     }
     changed = true
@@ -104,7 +111,7 @@ export function updateRuntimeUploadRow(
   emit()
 }
 
-export function summarizeRuntimeUploadSession(session: RuntimeUploadSession): {
+export function summarizeTransferSession(session: TransferSession): {
   sentBytes: number
   totalBytes: number
   percent: number
@@ -131,7 +138,7 @@ export function summarizeRuntimeUploadSession(session: RuntimeUploadSession): {
     }
     sentBytes += Math.min(row.sentBytes, row.totalBytes)
     totalBytes += row.totalBytes
-    if (row.status === 'uploading') {
+    if (row.status === 'active') {
       activeCount += 1
     }
   }

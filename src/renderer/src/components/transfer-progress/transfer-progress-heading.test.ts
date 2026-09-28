@@ -1,21 +1,23 @@
 import { describe, expect, it } from 'vitest'
-import { formatTerminalDropUploadHeading } from './terminal-drop-upload-heading'
+import { formatTransferProgressHeading } from './transfer-progress-heading'
 
-describe('formatTerminalDropUploadHeading', () => {
+describe('formatTransferProgressHeading', () => {
   it('counts files while the drop is running', () => {
     expect(
-      formatTerminalDropUploadHeading({
+      formatTransferProgressHeading({
+        direction: 'upload',
         rowCount: 2,
         settled: false,
         doneCount: 0,
         cancelledCount: 1
       })
-    ).toBe('Uploading 2 files to runtime')
+    ).toBe('Uploading 2 files')
   })
 
   it('says cancelled once everything stopped and nothing landed', () => {
     expect(
-      formatTerminalDropUploadHeading({
+      formatTransferProgressHeading({
+        direction: 'upload',
         rowCount: 2,
         settled: true,
         doneCount: 0,
@@ -26,29 +28,32 @@ describe('formatTerminalDropUploadHeading', () => {
 
   it('reports a partial drop by count', () => {
     expect(
-      formatTerminalDropUploadHeading({
+      formatTransferProgressHeading({
+        direction: 'upload',
         rowCount: 3,
         settled: true,
         doneCount: 1,
         cancelledCount: 2
       })
-    ).toBe('Uploaded 1 of 3 to runtime')
+    ).toBe('Uploaded 1 of 3')
   })
 
   it('reports a clean finish', () => {
     expect(
-      formatTerminalDropUploadHeading({
+      formatTransferProgressHeading({
+        direction: 'upload',
         rowCount: 2,
         settled: true,
         doneCount: 2,
         cancelledCount: 0
       })
-    ).toBe('Uploaded 2 files to runtime')
+    ).toBe('Uploaded 2 files')
   })
 
   it('distinguishes a failure from a cancel', () => {
     expect(
-      formatTerminalDropUploadHeading({
+      formatTransferProgressHeading({
+        direction: 'upload',
         rowCount: 1,
         settled: true,
         doneCount: 0,
@@ -59,20 +64,43 @@ describe('formatTerminalDropUploadHeading', () => {
 
   it('uses the singular for one file', () => {
     expect(
-      formatTerminalDropUploadHeading({
+      formatTransferProgressHeading({
+        direction: 'upload',
         rowCount: 1,
         settled: false,
         doneCount: 0,
         cancelledCount: 0
       })
-    ).toBe('Uploading 1 file to runtime')
+    ).toBe('Uploading 1 file')
     expect(
-      formatTerminalDropUploadHeading({
+      formatTransferProgressHeading({
+        direction: 'upload',
         rowCount: 1,
         settled: true,
         doneCount: 1,
         cancelledCount: 0
       })
-    ).toBe('Uploaded 1 file to runtime')
+    ).toBe('Uploaded 1 file')
+  })
+
+  it('words a download the same way', () => {
+    expect(
+      formatTransferProgressHeading({
+        direction: 'download',
+        rowCount: 1,
+        settled: false,
+        doneCount: 0,
+        cancelledCount: 0
+      })
+    ).toBe('Downloading 1 file')
+    expect(
+      formatTransferProgressHeading({
+        direction: 'download',
+        rowCount: 2,
+        settled: true,
+        doneCount: 0,
+        cancelledCount: 1
+      })
+    ).toBe('Download cancelled')
   })
 })

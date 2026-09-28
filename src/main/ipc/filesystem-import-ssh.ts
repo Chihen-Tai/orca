@@ -13,6 +13,10 @@ import {
   preScanSshImportDirectory,
   uploadSshImportDirectory
 } from './filesystem-import-ssh-directory'
+import {
+  importSshSourceWithProgress,
+  type SshImportProgressTarget
+} from './filesystem-import-ssh-progress'
 
 // Why: the SSH import path uses SshFilesystemProvider instead of direct SFTP so
 // system-SSH transports (ProxyCommand/ProxyJump/FIDO2) get the same workflows.
@@ -20,7 +24,11 @@ export async function importExternalPathsSsh(
   sourcePaths: string[],
   destDir: string,
   connectionId: string,
-  options?: { ensureDir?: boolean; assertCurrent?: () => void }
+  options?: {
+    ensureDir?: boolean
+    assertCurrent?: () => void
+    progress?: SshImportProgressTarget
+  }
 ): Promise<{ results: ImportItemResult[] }> {
   if (sourcePaths.length === 0) {
     return { results: [] }
@@ -62,14 +70,21 @@ export async function importExternalPathsSsh(
     : 'posix'
   try {
     for (const sourcePath of sourcePaths) {
-      const result = await importOneSourceSsh(
+      const result = await importSshSourceWithProgress(
+        options?.progress,
+        sourcePath,
         provider,
         uploadSession,
-        sourcePath,
-        destDir,
-        reservedNames,
-        remotePathFlavor,
-        options?.assertCurrent
+        (session) =>
+          importOneSourceSsh(
+            provider,
+            session,
+            sourcePath,
+            destDir,
+            reservedNames,
+            remotePathFlavor,
+            options?.assertCurrent
+          )
       )
       results.push(result)
       if (result.status === 'imported') {

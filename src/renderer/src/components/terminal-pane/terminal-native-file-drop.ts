@@ -13,6 +13,8 @@ import { reportTerminalDropUploadSkipsAndFailures } from './terminal-drop-upload
 import type { NativeDropFlowArgs } from './terminal-drop-paste'
 import { pasteResolvedDropPaths } from './terminal-drop-paste'
 import { uploadRuntimeDropPaths } from './terminal-runtime-drop-upload'
+import { createUploadProgressPanel } from '@/components/transfer-progress/upload-progress-panel'
+import { runSshUploadWithProgress } from '@/runtime/ssh-upload-progress-client'
 import { captureTerminalDropTarget } from './terminal-drop-target'
 import { resolveTerminalDropTargetShell } from './terminal-drop-shell'
 import { resolveNativeTerminalDropPane } from './terminal-drop-pane-resolution'
@@ -178,28 +180,36 @@ async function pasteLocalDropPaths(
 async function uploadRemoteDropPaths(
   args: NativeDropFlowArgs & { connectionId: string; targetShell: 'posix' | 'windows' }
 ): Promise<void> {
-  const pending = toast.loading(
-    translate(
-      'auto.components.terminal.pane.terminal.drop.handler.29c031b49a',
-      'Uploading {{value0}} file{{value1}} to remote…',
-      { value0: args.dataPaths.length, value1: args.dataPaths.length === 1 ? '' : 's' }
-    )
-  )
+  const panel = createUploadProgressPanel()
   try {
-    const { resolvedPaths, skipped, failed } = await window.api.fs.resolveDroppedPathsForAgent({
-      paths: args.dataPaths,
-      worktreePath: args.worktreePath,
-      connectionId: args.connectionId,
-      expectedExecutionHostId: args.expectedExecutionHostId,
-      expectedSshTargetId: args.expectedSshTargetId,
-      expectedSshConnectionGeneration: args.expectedSshConnectionGeneration
-    })
+    const { resolvedPaths, skipped, failed } = await runSshUploadWithProgress(
+      args.dataPaths,
+      panel.progress,
+      (uploadIds) =>
+        window.api.fs.resolveDroppedPathsForAgent({
+          paths: args.dataPaths,
+          worktreePath: args.worktreePath,
+          connectionId: args.connectionId,
+          expectedExecutionHostId: args.expectedExecutionHostId,
+          expectedSshTargetId: args.expectedSshTargetId,
+          expectedSshConnectionGeneration: args.expectedSshConnectionGeneration,
+          ...(uploadIds ? { uploadIds } : {})
+        }),
+      (result, sourcePath) =>
+        result.skipped.some((item) => item.sourcePath === sourcePath) ||
+        result.failed.some((item) => item.sourcePath === sourcePath)
+          ? 'failed'
+          : 'done'
+    )
     await pasteResolvedDropPaths({ ...args, paths: resolvedPaths, targetShell: args.targetShell })
-    reportTerminalDropUploadSkipsAndFailures(skipped, failed)
+    reportTerminalDropUploadSkipsAndFailures(
+      skipped,
+      // Why: a cancel is the user's own decision, not a failure to report back.
+      failed.filter((item) => !panel.cancelledSourcePaths.has(item.sourcePath))
+    )
   } catch (err) {
+    panel.close()
     toast.error(extractIpcErrorMessage(err, 'Failed to upload files.'))
-  } finally {
-    toast.dismiss(pending)
   }
 }
 
