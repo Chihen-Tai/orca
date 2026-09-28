@@ -1,5 +1,5 @@
-import { useMemo, useRef, useState } from 'react'
-import { encodeAgentSessionQuestionAnswers } from '../../../../shared/agent-session-question-answer'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { agentSessionPromptQuestions } from '../../../../shared/agent-session-question-answer'
 import { dispatchStructuredAgentSessionComposerCommand } from '../../../../shared/structured-agent-session-composer'
 import { structuredAgentSessionPaneKey } from '../../../../shared/structured-agent-session-projection'
 import type { NativeChatLiveSession } from './use-native-chat-live-session'
@@ -22,14 +22,15 @@ import { NativeChatStructuredSessionStatus } from './NativeChatStructuredSession
 import { useNativeChatLaunchDraftSignal } from './use-native-chat-launch-draft-adoption'
 import { NativeChatLaunchRetry } from './NativeChatLaunchRetry'
 import { useNativeChatProvisionalLaunch } from './use-native-chat-provisional-launch'
-import { NativeChatDeliveryRetry } from './NativeChatDeliveryRetry'
 import { useStructuredAgentSessionHostExecutionPhase } from './StructuredAgentSessionStatusBridge'
 import { structuredAgentLabel } from '@/lib/structured-agent-session-launch-label'
 import { NativeChatThreadGoalBanner } from './NativeChatThreadGoalBanner'
+import { structuredAgentSessionReadFailureNotice } from './structured-agent-session-read-failure-notice'
+import { useStructuredAgentSessionStartFailureFacts } from './use-structured-agent-session-start-failure-facts'
+import { structuredAgentSessionDeliveryNotices } from './structured-agent-session-delivery-notices'
+import type { AgentJournalSubmission } from '../../../../shared/agent-session-journal-types'
 
-function encodeQuestionAnswer(questionId: string, answer: string): string {
-  return `${encodeURIComponent(questionId)}:${encodeURIComponent(answer)}`
-}
+const NO_SUBMISSIONS: readonly AgentJournalSubmission[] = []
 
 export function NativeChatStructuredSession(
   props: Omit<NativeChatStructuredViewProps, 'mode'>
@@ -104,7 +105,46 @@ export function NativeChatStructuredSession(
     }),
     [controller, props.agent, props.sessionId]
   )
-  const viewState = selectNativeChatViewState(session)
+  // Read at click time, so the notices stay put while the outbox's Retry is rebuilt each render.
+  const retryRef = useRef(controller.retry)
+  useEffect(() => {
+    retryRef.current = controller.retry
+  })
+  const retryDelivery = useCallback((clientMessageId: string) => {
+    retryRef.current(clientMessageId)
+  }, [])
+  const agentLabel = structuredAgentLabel(props.agent === 'codex' ? 'codex' : 'claude')
+  // Only a rejected message reads the journal's rows, so a new batch of them re-renders no row else.
+  const hasRejected = controller.outbox.some((entry) => entry.state === 'rejected')
+  const rejectionRows = hasRejected ? controller.submissions : NO_SUBMISSIONS
+  const startFailures = useStructuredAgentSessionStartFailureFacts(
+    controller.journalItems,
+    hasRejected
+  )
+  const deliveryNotices = useMemo(
+    () =>
+      structuredAgentSessionDeliveryNotices(
+        controller.outbox,
+        controller.blockedClientMessageId,
+        agentLabel,
+        retryDelivery,
+        rejectionRows,
+        startFailures
+      ),
+    [
+      controller.outbox,
+      controller.blockedClientMessageId,
+      agentLabel,
+      retryDelivery,
+      rejectionRows,
+      startFailures
+    ]
+  )
+  const viewState = selectNativeChatViewState(session, { readRetries: true })
+  const readFailure =
+    controller.status === 'error'
+      ? structuredAgentSessionReadFailureNotice(controller.readRefusal)
+      : null
   const fontScale = useNativeChatFontScale(viewState.kind === 'ready')
   const imageRuntimeContext = useNativeChatImageRuntimeContext(props.tabId)
   const { onLinkClick, linkActionRequest, closeLinkActions } = useNativeChatLinkActions(
@@ -146,21 +186,7 @@ export function NativeChatStructuredSession(
     composerReady: prompt === null
   })
   const questionBody = prompt?.body.kind === 'question' ? prompt.body : null
-  const questions =
-    questionBody?.questions ??
-    (questionBody
-      ? [
-          {
-            id: questionBody.freeTextQuestionId ?? 'q1',
-            question: questionBody.question,
-            options: questionBody.options,
-            multiSelect: false,
-            ...(questionBody.freeTextQuestionId
-              ? { freeTextQuestionId: questionBody.freeTextQuestionId }
-              : {})
-          }
-        ]
-      : [])
+  const questions = questionBody ? agentSessionPromptQuestions(questionBody) : []
   const structuredTransport = useMemo(() => {
     const threadGoal = controller.threadGoal
     const setThreadGoalObjective = threadGoal
@@ -235,7 +261,11 @@ export function NativeChatStructuredSession(
         {viewState.kind === 'loading' ? (
           <NativeChatEmptyState kind="loading" />
         ) : viewState.kind === 'error' ? (
-          <NativeChatEmptyState kind="error" message={viewState.message} />
+          <NativeChatEmptyState
+            kind="error"
+            retrying={!readFailure?.final}
+            {...(readFailure?.named ? { headline: readFailure.text } : {})}
+          />
         ) : viewState.kind === 'empty' ? (
           <NativeChatEmptyState kind="empty" agent={props.agent} />
         ) : (
@@ -255,24 +285,26 @@ export function NativeChatStructuredSession(
             onLinkClick={onLinkClick}
             allowFileUriLinks={onLinkClick !== undefined}
             runtimeContext={imageRuntimeContext}
+            deliveryNotices={deliveryNotices}
           />
         )}
       </div>
-      <NativeChatDeliveryRetry
-        outbox={controller.outbox}
-        blockedClientMessageId={controller.blockedClientMessageId}
-        retry={controller.retry}
-      />
       <NativeChatLaunchRetry
         lifecycle={provisionalLaunch.lifecycle}
-        failureReason={provisionalLaunch.failureReason}
+        failure={provisionalLaunch.failure}
+        agentLabel={agentLabel}
         onRetry={provisionalLaunch.retry}
       />
       <NativeChatStructuredSessionStatus
         sessionId={props.sessionId}
-        agentLabel={structuredAgentLabel(props.agent === 'codex' ? 'codex' : 'claude')}
+        agentLabel={agentLabel}
         startupPhase={startupPhase}
-        error={controller.error}
+        // Said once: on the pane when the failure took it, else here beside the transcript. A
+        // failure that names nothing is only the pane reconnecting.
+        error={
+          viewState.kind === 'error' || !readFailure?.named ? controller.error : readFailure.text
+        }
+        reconnecting={viewState.kind !== 'error' && readFailure !== null && !readFailure.named}
         composerError={composerError}
         isVisible={props.isVisible}
         backgroundTasks={controller.backgroundTasks}
@@ -295,7 +327,7 @@ export function NativeChatStructuredSession(
         <NativeChatApprovalCard
           key={`${prompt.itemId}:${prompt.revision}`}
           approval={approval}
-          onChoose={(optionId) => void controller.respond(prompt, optionId)}
+          onChoose={(optionId) => void controller.respond(prompt, { kind: 'option', optionId })}
           onCancel={cancelPrompt}
           shouldFocus={props.isVisible && props.isFocusedGroup}
           onLinkClick={onLinkClick}
@@ -318,35 +350,17 @@ export function NativeChatStructuredSession(
           }}
           allowOther={questions.map((question) => Boolean(question.freeTextQuestionId))}
           onAnswer={(answers) => {
-            if (questionBody.questions) {
-              const grouped = questions.map((question, questionIndex) => {
-                const answer = answers[questionIndex]
-                const other = answer?.other?.trim()
-                const optionIds = (answer?.indices ?? []).flatMap((optionIndex) => {
-                  const optionId = question.options[optionIndex]?.id
-                  return optionId ? [optionId] : []
-                })
-                return {
-                  questionId: question.id,
-                  optionIds: question.multiSelect || !other ? optionIds : [],
-                  ...(other ? { other } : {})
-                }
+            const chosen = questions.map((question, questionIndex) => {
+              const answer = answers[questionIndex]
+              const other = answer?.other?.trim()
+              const optionIds = (answer?.indices ?? []).flatMap((optionIndex) => {
+                const optionId = question.options[optionIndex]?.id
+                return optionId ? [optionId] : []
               })
-              if (grouped.every((answer) => answer.optionIds.length > 0 || answer.other)) {
-                void controller.respond(prompt, encodeAgentSessionQuestionAnswers(grouped))
-              }
-              return
-            }
-            const index = answers[0]?.indices[0]
-            const other = answers[0]?.other?.trim()
-            const optionId =
-              typeof index === 'number'
-                ? questionBody.options[index]?.id
-                : questionBody.freeTextQuestionId && other
-                  ? encodeQuestionAnswer(questionBody.freeTextQuestionId, other)
-                  : undefined
-            if (optionId) {
-              void controller.respond(prompt, optionId)
+              return { questionId: question.id, optionIds, ...(other ? { other } : {}) }
+            })
+            if (chosen.every((answer) => answer.optionIds.length > 0 || answer.other)) {
+              void controller.respond(prompt, { kind: 'answers', answers: chosen })
             }
           }}
           onCancel={cancelPrompt}
