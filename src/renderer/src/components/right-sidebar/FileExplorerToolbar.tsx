@@ -1,5 +1,5 @@
 import React from 'react'
-import { Ellipsis, ListCollapse, Loader2, RefreshCw } from 'lucide-react'
+import { Ellipsis, HardDrive, ListCollapse, Loader2, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -30,6 +30,12 @@ type FileExplorerToolbarProps = {
   onToggleGitIgnoredFiles: () => void
   showDotfiles: boolean
   onToggleDotfiles: () => void
+  hostMode: {
+    active: boolean
+    /** Null when Host mode can be entered; otherwise why it cannot. */
+    unavailableLabel: string | null
+    onToggle: () => void
+  }
 }
 
 /** Shares repository actions across explorer views. */
@@ -45,8 +51,13 @@ export function FileExplorerToolbar({
   showGitIgnoredFiles,
   onToggleGitIgnoredFiles,
   showDotfiles,
-  onToggleDotfiles
+  onToggleDotfiles,
+  hostMode
 }: FileExplorerToolbarProps): React.JSX.Element {
+  const hostModeLabel = hostMode.active
+    ? translate('fileExplorer.host.returnToProject', 'Return to workspace root')
+    : (hostMode.unavailableLabel ?? translate('fileExplorer.host.enter', 'Browse host filesystem'))
+  const canToggleHostMode = hostMode.active || hostMode.unavailableLabel === null
   return (
     <div className="flex h-8 min-h-8 items-center gap-2 border-b border-border px-2">
       <span
@@ -55,6 +66,27 @@ export function FileExplorerToolbar({
       >
         {repoName}
       </span>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          {/* Why: disabled buttons swallow pointer events, so the span carries the tooltip. */}
+          <span className="inline-flex">
+            <Button
+              type="button"
+              variant={hostMode.active ? 'secondary' : 'ghost'}
+              size="icon-xs"
+              aria-label={hostModeLabel}
+              aria-pressed={hostMode.active}
+              disabled={!canToggleHostMode}
+              onClick={hostMode.onToggle}
+            >
+              <HardDrive className="size-3" />
+            </Button>
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" sideOffset={4}>
+          {hostModeLabel}
+        </TooltipContent>
+      </Tooltip>
       <Tooltip>
         <TooltipTrigger asChild>
           <Button

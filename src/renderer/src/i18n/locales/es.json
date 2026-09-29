@@ -15386,6 +15386,24 @@
       "findInFolder": "Buscar en {{path}}",
       "folderLoadError": "No se pudo cargar esta carpeta:",
       "emptyFolder": "No hay archivos en esta carpeta"
+    },
+    "host": {
+      "returnToProject": "Volver a la raíz del espacio de trabajo",
+      "refresh": "Actualizar carpeta",
+      "browsing": "Host: {{host}}",
+      "parentDirectory": "Carpeta superior",
+      "truncated": "Mostrando {{shown}} de {{total}} elementos. Filtra por nombre para acotar la lista.",
+      "contentsUnavailable": "La búsqueda de contenido abarca el espacio de trabajo. Vuelve a la raíz del espacio de trabajo para usarla.",
+      "thisFolder": "esta carpeta",
+      "enter": "Explorar el sistema de archivos del host",
+      "runtimeFileOutsideWorkspace": "Todavía no se pueden abrir archivos fuera del espacio de trabajo en este servidor remoto.",
+      "folderOpenFailed": "No se pudo abrir esta carpeta: {{error}}",
+      "unsupportedEntry": "Este elemento no se puede abrir.",
+      "entryMissing": "Este elemento ya no existe.",
+      "entryUnverifiable": "No se pudo acceder a este elemento: {{error}}",
+      "unavailableRuntimeRemote": "La exploración del host no está disponible para espacios de trabajo a los que este servidor accede por SSH",
+      "unavailableClient": "La exploración del host no está disponible en este cliente",
+      "unavailableUnresolved": "La exploración del host estará disponible cuando se conozca el host del espacio de trabajo"
     }
   },
   "sparsePreset": {

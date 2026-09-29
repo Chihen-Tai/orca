@@ -35,6 +35,10 @@ import { useFileExplorerVisibleRowProjection } from './useFileExplorerVisibleRow
 import { useFileExplorerBackgroundMenu } from './use-file-explorer-background-menu'
 import { useFileExplorerNameFilter } from './use-file-explorer-name-filter'
 import { useFileExplorerTreePaneState } from './use-file-explorer-tree-pane-state'
+import { useFileExplorerHostMode } from './use-file-explorer-host-mode'
+import { FileExplorerHostBar } from './FileExplorerHostBar'
+import { FileExplorerHostList } from './FileExplorerHostList'
+import { FileExplorerHostQueryRow } from './FileExplorerHostQueryRow'
 import { translate } from '@/i18n/i18n'
 import type { RightSidebarExplorerView } from '../../../../shared/ui-chrome-types'
 
@@ -64,6 +68,7 @@ function FileExplorerFiles(): React.JSX.Element {
   const rootChoice = resolveExplorerDisplayRootChoice(rootOptions, savedRoot)
   const rootNavigation = useFileExplorerRootNavigation(activeWorktreeId, rootChoice, rootOptions)
   const worktreePath = activeWorktree?.path ?? null
+  const hostMode = useFileExplorerHostMode({ activeWorktreeId, worktreePath })
   const displayRootPath = getExplorerDisplayRootPath(worktreePath, rootChoice)
   const displayDepth = getExplorerDisplayDepth(worktreePath, displayRootPath)
   const isFilesViewActive = explorerView === 'files'
@@ -140,7 +145,8 @@ function FileExplorerFiles(): React.JSX.Element {
   )
   const visibleRowCount = rowProjection.getVisibleCount()
   const manualRefresh = useFileExplorerManualRefresh(tree.refreshTree)
-  const canCollapseAll = isFilesViewActive && !hasNameFilter && expanded.size > 0
+  const canCollapseAll =
+    isFilesViewActive && !hostMode.active && !hasNameFilter && expanded.size > 0
   const handleCollapseAll = useCallback(() => {
     if (!activeWorktreeId || !isFilesViewActive || hasNameFilter) {
       return
@@ -250,7 +256,7 @@ function FileExplorerFiles(): React.JSX.Element {
           worktreePath={worktreePath}
           connectionId={activeRepo?.connectionId ?? null}
           refresh={manualRefresh}
-          canRefresh={isFilesViewActive}
+          canRefresh={isFilesViewActive && !hostMode.active}
           canCollapseAll={canCollapseAll}
           onCollapseAll={handleCollapseAll}
           showGitIgnoredFilesToggle={activeRepoSupportsGit}
@@ -258,8 +264,10 @@ function FileExplorerFiles(): React.JSX.Element {
           onToggleGitIgnoredFiles={toggleGitIgnoredFiles}
           showDotfiles={showDotfiles}
           onToggleDotfiles={handleToggleDotfiles}
+          hostMode={hostMode.toolbar}
         />
-        {activeWorktree?.isSparse && (
+        {hostMode.active && <FileExplorerHostBar hostMode={hostMode} />}
+        {activeWorktree?.isSparse && !hostMode.active && (
           <FileExplorerScopeNotice
             rootSelect={
               isFilesViewActive && rootOptions
@@ -286,9 +294,13 @@ function FileExplorerFiles(): React.JSX.Element {
           {/* Why: keep both query rows mounted and cross-fade so the Names/Contents
              switch does not remount or shift when changing modes. */}
           <div className="relative min-h-7">
+            {hostMode.active && (
+              <FileExplorerHostQueryRow view={explorerView} hostMode={hostMode} />
+            )}
             <div
               className={cn(
-                explorerView !== 'files' && 'pointer-events-none invisible absolute inset-x-0 top-0'
+                (hostMode.active || explorerView !== 'files') &&
+                  'pointer-events-none invisible absolute inset-x-0 top-0'
               )}
             >
               <FileExplorerNameFilter
@@ -301,7 +313,7 @@ function FileExplorerFiles(): React.JSX.Element {
             </div>
             <div
               className={cn(
-                explorerView !== 'search' &&
+                (hostMode.active || explorerView !== 'search') &&
                   'pointer-events-none invisible absolute inset-x-0 top-0'
               )}
             >
@@ -312,7 +324,7 @@ function FileExplorerFiles(): React.JSX.Element {
         <div
           className={cn(
             'border-b border-border px-2 pb-1.5',
-            explorerView !== 'search' &&
+            (hostMode.active || explorerView !== 'search') &&
               'pointer-events-none invisible h-0 overflow-hidden border-b-0 p-0'
           )}
         >
@@ -321,44 +333,52 @@ function FileExplorerFiles(): React.JSX.Element {
         {/* Why: the Files and Contents views share one body slot; layering them
            avoids remounting heavy virtualized panes while preserving full height. */}
         <div className="relative min-h-0 flex-1 overflow-hidden">
-          <FileExplorerFilesTreePane
-            displayRootPath={displayRootPath}
-            activeRepo={activeRepo}
-            worktreePath={worktreePath}
-            visibleFilesWorktreePath={visibleFilesWorktreePath}
-            explorerView={explorerView}
-            isFilesViewActive={isFilesViewActive}
-            activeFileId={activeFileId}
-            hasNameFilter={hasNameFilter}
-            nameFilterSource={nameFilterSource}
-            nameFilterFiles={nameFilterFiles}
-            handleExpandNameFilterDir={handleExpandNameFilterDir}
-            tree={tree}
-            selection={selection}
-            paneState={paneState}
-            rowProjection={rowProjection}
-            ignoredByRelativePath={ignoredByRelativePath}
-            rowExpandedPaths={rowExpandedPaths}
-            visibleRowCount={visibleRowCount}
-            handleExplorerBackgroundContextMenuCapture={handleExplorerBackgroundContextMenuCapture}
-            handleExplorerBackgroundDoubleClick={handleExplorerBackgroundDoubleClick}
-          />
-          <div
-            className={cn(
-              'absolute inset-0 flex min-h-0 flex-col',
-              explorerView !== 'search' && 'pointer-events-none invisible'
-            )}
-          >
-            {searchPanel.activeWorktreeId ? (
-              <SearchResultsPane {...searchPanel.resultsProps} />
-            ) : (
-              <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
-                {translate(
-                  'auto.components.right.sidebar.Search.98c8435e36',
-                  'Select a workspace to search'
-                )}
-              </div>
-            )}
+          {hostMode.active && (
+            <FileExplorerHostList hostMode={hostMode} showDotfiles={showDotfiles} />
+          )}
+          {/* Why: Host mode overlays instead of unmounting so tree caches and listeners survive. */}
+          <div className="h-full min-h-0" inert={hostMode.active}>
+            <FileExplorerFilesTreePane
+              displayRootPath={displayRootPath}
+              activeRepo={activeRepo}
+              worktreePath={worktreePath}
+              visibleFilesWorktreePath={visibleFilesWorktreePath}
+              explorerView={explorerView}
+              isFilesViewActive={isFilesViewActive}
+              activeFileId={activeFileId}
+              hasNameFilter={hasNameFilter}
+              nameFilterSource={nameFilterSource}
+              nameFilterFiles={nameFilterFiles}
+              handleExpandNameFilterDir={handleExpandNameFilterDir}
+              tree={tree}
+              selection={selection}
+              paneState={paneState}
+              rowProjection={rowProjection}
+              ignoredByRelativePath={ignoredByRelativePath}
+              rowExpandedPaths={rowExpandedPaths}
+              visibleRowCount={visibleRowCount}
+              handleExplorerBackgroundContextMenuCapture={
+                handleExplorerBackgroundContextMenuCapture
+              }
+              handleExplorerBackgroundDoubleClick={handleExplorerBackgroundDoubleClick}
+            />
+            <div
+              className={cn(
+                'absolute inset-0 flex min-h-0 flex-col',
+                explorerView !== 'search' && 'pointer-events-none invisible'
+              )}
+            >
+              {searchPanel.activeWorktreeId ? (
+                <SearchResultsPane {...searchPanel.resultsProps} />
+              ) : (
+                <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
+                  {translate(
+                    'auto.components.right.sidebar.Search.98c8435e36',
+                    'Select a workspace to search'
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
