@@ -137,6 +137,8 @@ export type FileUploadSession = {
     options?: {
       exclusive?: boolean
       signal?: AbortSignal
+      /** Fires once the destination exists because this upload created it. */
+      onRemoteCreated?: () => void
       onBytesTransferred?: (bytes: number) => void
     }
   ): Promise<void>

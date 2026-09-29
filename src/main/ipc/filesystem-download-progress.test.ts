@@ -6,6 +6,7 @@ import {
   showSaveDialogMock,
   showOpenDialogMock,
   statMock,
+  renameMock,
   getSshFilesystemProviderMock,
   resetFilesystemIpcMocks
 } from './filesystem-test-harness'
@@ -114,6 +115,26 @@ describe('remote download progress IPC', () => {
       'fs:downloadProgress',
       expect.objectContaining({ transferredBytes: 4 })
     )
+  })
+
+  it('keeps the file out of place when cancel lands after the last byte', async () => {
+    const provider = {
+      stat: vi.fn().mockResolvedValue({ size: 10, type: 'file', mtime: 1 }),
+      downloadFile: vi.fn(async () => {
+        await handlers.get('fs:cancelDownload')!(event, { downloadId: 'd3' })
+      })
+    }
+    getSshFilesystemProviderMock.mockReturnValue(provider)
+    showSaveDialogMock.mockResolvedValue({ canceled: false, filePath: '/downloads/a.bin' })
+
+    await expect(
+      handlers.get('fs:downloadFile')!(event, {
+        filePath: '/remote/a.bin',
+        connectionId: 'ssh-1',
+        downloadId: 'd3'
+      })
+    ).rejects.toThrow('Download canceled')
+    expect(renameMock).not.toHaveBeenCalled()
   })
 
   it('reports folder progress without a total and links cancel to the folder signal', async () => {

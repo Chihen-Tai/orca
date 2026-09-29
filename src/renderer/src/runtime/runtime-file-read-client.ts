@@ -133,7 +133,7 @@ export async function downloadRuntimeFile(
   }
 
   if (!(await remoteChunkedDownloadAvailable(remoteArgs))) {
-    return downloadRemoteFileViaPreview(remoteArgs, suggestedName)
+    return downloadRemoteFileViaPreview(remoteArgs, suggestedName, transfer?.signal)
   }
 
   const download = await window.api.fs.startDownloadedFile({ suggestedName })
@@ -166,6 +166,8 @@ export async function downloadRuntimeFile(
         throw new Error('Remote download stalled before reaching EOF')
       }
     }
+    // Why: a cancel during the final append would otherwise still commit the file.
+    transfer?.signal.throwIfAborted()
     const result = await window.api.fs.finishDownloadedFile({ transferId: download.transferId })
     finished = true
     return result
@@ -232,7 +234,8 @@ async function readRemoteDownloadSize(remoteArgs: RemoteFileDownloadArgs): Promi
 
 async function downloadRemoteFileViaPreview(
   remoteArgs: RemoteFileDownloadArgs,
-  suggestedName: string
+  suggestedName: string,
+  signal?: AbortSignal
 ): Promise<RuntimeFileDownloadResult> {
   try {
     const result = await callRuntimeRpc<RuntimeFilePreviewResult>(
@@ -246,6 +249,8 @@ async function downloadRemoteFileViaPreview(
     if (result.isBinary && !result.content && !result.isImage && !result.mimeType) {
       throw new Error(REMOTE_DOWNLOAD_UPDATE_REQUIRED_MESSAGE)
     }
+    // Why: older servers return the whole file in one reply, so cancel can only stop the save.
+    signal?.throwIfAborted()
     return window.api.fs.saveDownloadedFile({
       suggestedName,
       content: result.content,

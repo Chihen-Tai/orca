@@ -115,4 +115,28 @@ describe('runtime file download progress', () => {
     expect(fsCancelDownloadedFile).toHaveBeenCalledWith({ transferId: 'download-1' })
     expect(fsFinishDownloadedFile).not.toHaveBeenCalled()
   })
+
+  it('does not commit the file when cancel lands during the final append', async () => {
+    fsStartDownloadedFile.mockResolvedValue({
+      canceled: false,
+      transferId: 'download-1',
+      destinationPath: '/downloads/archive.zip'
+    })
+    fsCancelDownloadedFile.mockResolvedValue({ ok: true })
+    const { transfer, controller } = createTransfer()
+    fsAppendDownloadedFileChunk.mockImplementation(async () => {
+      controller.abort(new Error('Download canceled'))
+      return { ok: true }
+    })
+    runtimeEnvironmentCall
+      .mockResolvedValueOnce(rpcResult({ contentBase64: 'YQ==', bytesRead: 1, eof: false }))
+      .mockResolvedValueOnce(rpcResult({ size: 1, isDirectory: false, mtime: 1 }))
+      .mockResolvedValueOnce(rpcResult({ contentBase64: 'YQ==', bytesRead: 1, eof: true }))
+
+    await expect(
+      downloadRuntimeFile(context, '/remote/repo/archive.zip', 'archive.zip', transfer)
+    ).rejects.toThrow('Download canceled')
+    expect(fsFinishDownloadedFile).not.toHaveBeenCalled()
+    expect(fsCancelDownloadedFile).toHaveBeenCalledWith({ transferId: 'download-1' })
+  })
 })

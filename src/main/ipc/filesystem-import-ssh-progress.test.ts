@@ -8,12 +8,19 @@ import {
   measureLocalUploadBytes,
   toSshImportProgressTarget
 } from './filesystem-import-ssh-progress'
-import { cancelRuntimeUpload, forgetRuntimeUploadCancellation } from './runtime-upload-cancellation'
+import {
+  cancelRuntimeUpload,
+  forgetRuntimeUploadCancellation,
+  scopeRuntimeUploadId
+} from './runtime-upload-cancellation'
 
 type UploadOptions = Parameters<FileUploadSession['uploadFile']>[2]
 
+const SENDER_ID = 7
+const SCOPED_ID = scopeRuntimeUploadId(SENDER_ID, 'u1')
+
 function createSender() {
-  return { isDestroyed: vi.fn(() => false), send: vi.fn() }
+  return { id: SENDER_ID, isDestroyed: vi.fn(() => false), send: vi.fn() }
 }
 
 function createProvider(): Pick<IFilesystemProvider, 'deletePath'> & {
@@ -26,7 +33,7 @@ describe('SSH import progress', () => {
   const roots: string[] = []
 
   afterEach(async () => {
-    forgetRuntimeUploadCancellation('u1')
+    forgetRuntimeUploadCancellation(SCOPED_ID)
     await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })))
   })
 
@@ -94,29 +101,90 @@ describe('SSH import progress', () => {
     expect(session.close).not.toHaveBeenCalled()
   })
 
-  it('aborts the in-flight file on cancel and removes its partial remote copy', async () => {
-    const sourcePath = await createSource()
-    const provider = createProvider()
-    const uploadFile = vi.fn(
+  function cancellingUpload(createsRemoteFile: boolean) {
+    return vi.fn(
       (_local: string, _remote: string, options: UploadOptions) =>
         new Promise<void>((_resolve, reject) => {
+          if (createsRemoteFile) {
+            options?.onRemoteCreated?.()
+          }
           options?.signal?.addEventListener('abort', () => reject(new Error('aborted')))
-          cancelRuntimeUpload('u1')
+          cancelRuntimeUpload(SCOPED_ID)
         })
     )
+  }
 
+  async function runCancelledUpload(createsRemoteFile: boolean) {
+    const sourcePath = await createSource()
+    const provider = createProvider()
     await expect(
       importSshSourceWithProgress(
         { sender: createSender(), uploadIdsBySourcePath: { [sourcePath]: 'u1' } },
         sourcePath,
         provider,
-        { uploadFile, close: vi.fn() },
+        { uploadFile: cancellingUpload(createsRemoteFile), close: vi.fn() },
         async (tracked) => {
           await tracked.uploadFile('/l/a', '/r/a', { exclusive: true })
           return { sourcePath, status: 'imported', destPath: '/r/a', kind: 'file', renamed: false }
         }
       )
     ).rejects.toThrow('aborted')
+    return provider
+  }
+
+  it('aborts the in-flight file on cancel and removes the partial file it created', async () => {
+    const provider = await runCancelledUpload(true)
     expect(provider.deletePath).toHaveBeenCalledWith('/r/a', false)
+  })
+
+  it('leaves a file it never created alone when cancel races an exclusive-create loss', async () => {
+    const provider = await runCancelledUpload(false)
+    expect(provider.deletePath).not.toHaveBeenCalled()
+  })
+
+  it('rolls back a source whose cancel arrives after its last byte', async () => {
+    const sourcePath = await createSource()
+    const provider = createProvider()
+
+    const result = await importSshSourceWithProgress(
+      { sender: createSender(), uploadIdsBySourcePath: { [sourcePath]: 'u1' } },
+      sourcePath,
+      provider,
+      { uploadFile: vi.fn(), close: vi.fn() },
+      async () => {
+        // Why: an empty folder uploads no file, so nothing observes the signal mid-run.
+        cancelRuntimeUpload(SCOPED_ID)
+        return {
+          sourcePath,
+          status: 'imported',
+          destPath: '/r/src',
+          kind: 'directory',
+          renamed: false
+        }
+      }
+    )
+
+    expect(result).toEqual({ sourcePath, status: 'failed', reason: 'Upload cancelled' })
+    expect(provider.deletePath).toHaveBeenCalledWith('/r/src', true)
+  })
+
+  it('ignores a cancel sent for the same id from another window', async () => {
+    const sourcePath = await createSource()
+    const provider = createProvider()
+
+    const result = await importSshSourceWithProgress(
+      { sender: createSender(), uploadIdsBySourcePath: { [sourcePath]: 'u1' } },
+      sourcePath,
+      provider,
+      { uploadFile: vi.fn(), close: vi.fn() },
+      async () => {
+        cancelRuntimeUpload(scopeRuntimeUploadId(SENDER_ID + 1, 'u1'))
+        return { sourcePath, status: 'imported', destPath: '/r/a', kind: 'file', renamed: false }
+      }
+    )
+
+    expect(result.status).toBe('imported')
+    expect(provider.deletePath).not.toHaveBeenCalled()
+    forgetRuntimeUploadCancellation(scopeRuntimeUploadId(SENDER_ID + 1, 'u1'))
   })
 })

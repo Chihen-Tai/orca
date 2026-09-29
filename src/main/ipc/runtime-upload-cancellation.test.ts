@@ -5,7 +5,8 @@ import {
   isRuntimeUploadCancelled,
   isUploadCancelled,
   registerCancellableUpload,
-  RuntimeUploadCancelledError
+  RuntimeUploadCancelledError,
+  scopeRuntimeUploadId
 } from './runtime-upload-cancellation'
 
 afterEach(() => {
@@ -59,6 +60,22 @@ describe('runtime upload cancellation', () => {
     cancelRuntimeUpload('u')
 
     expect(live.signal.aborted).toBe(true)
+  })
+
+  it('keeps windows apart even when they mint the same id', () => {
+    expect(scopeRuntimeUploadId(1, 'u')).not.toBe(scopeRuntimeUploadId(2, 'u'))
+  })
+
+  it('forgets the oldest unreleased cancels instead of growing without bound', () => {
+    const ids = Array.from({ length: 1025 }, (_, index) => `bulk-${index}`)
+    for (const id of ids) {
+      cancelRuntimeUpload(id)
+    }
+    expect(isUploadCancelled('bulk-0')).toBe(false)
+    expect(isUploadCancelled('bulk-1024')).toBe(true)
+    for (const id of ids) {
+      forgetRuntimeUploadCancellation(id)
+    }
   })
 
   it('recognises its own error and nothing else', () => {

@@ -67,6 +67,8 @@ export function registerFilesystemDownloadHandlers(context: FilesystemHandlerCon
       let promoted = false
       try {
         await provider.downloadFile(filePath, tempPath, session?.observer)
+        // Why: a cancel that lands after the last byte must still keep the file out of place.
+        session?.observer.signal?.throwIfAborted()
         await promoteDownloadedFile(tempPath, destinationPath, existed)
         promoted = true
         return { canceled: false, destinationPath }

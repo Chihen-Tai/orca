@@ -33,6 +33,7 @@ export function mkdirSftp(
 export type SftpUploadFileOptions = {
   exclusive?: boolean
   signal?: AbortSignal
+  onRemoteCreated?: () => void
   onBytesTransferred?: (bytes: number) => void
 }
 
@@ -82,6 +83,10 @@ async function uploadFileAndJoinTeardown(
     // Why: the OPEN reply can land after this transfer settles; without a listener that
     // outlives it, ssh2 throws it synchronously into the socket handler (#15479).
     writeStreamErrors = latchLateSftpStreamErrors(writeStream, remotePath)
+    const onRemoteCreated = options?.onRemoteCreated
+    if (onRemoteCreated) {
+      writeStream.once('open', () => onRemoteCreated())
+    }
     readStream = handle.createReadStream({ autoClose: false })
     const onBytesTransferred = options?.onBytesTransferred
     if (onBytesTransferred) {

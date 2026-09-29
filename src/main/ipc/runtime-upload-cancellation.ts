@@ -14,6 +14,14 @@ const controllers = new Map<string, AbortController>()
 // them. Remembering the id means the next file aborts instead of the click
 // silently doing nothing.
 const cancelled = new Set<string>()
+// Why: a cancel whose release never arrives (window closed mid-drop) must not
+// grow this set for the life of the process.
+const MAX_REMEMBERED_CANCELS = 1024
+
+/** Ids are renderer-minted, so one window must not reach another window's upload. */
+export function scopeRuntimeUploadId(senderId: number, uploadId: string): string {
+  return `${senderId}:${uploadId}`
+}
 
 /** Registers an upload so it can be cancelled; returns its release callback. */
 export function registerCancellableUpload(uploadId: string): {
@@ -36,6 +44,12 @@ export function registerCancellableUpload(uploadId: string): {
 }
 
 export function cancelRuntimeUpload(uploadId: string): void {
+  if (cancelled.size >= MAX_REMEMBERED_CANCELS && !cancelled.has(uploadId)) {
+    const oldest = cancelled.values().next().value
+    if (oldest !== undefined) {
+      cancelled.delete(oldest)
+    }
+  }
   cancelled.add(uploadId)
   controllers.get(uploadId)?.abort()
 }

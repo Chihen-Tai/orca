@@ -7,10 +7,10 @@ import {
   RUNTIME_UPLOAD_PROGRESS_CHANNEL,
   throttleRuntimeUploadProgress
 } from './runtime-upload-progress'
-import { registerCancellableUpload } from './runtime-upload-cancellation'
+import { registerCancellableUpload, scopeRuntimeUploadId } from './runtime-upload-cancellation'
 
 export type SshImportProgressTarget = {
-  sender: Pick<WebContents, 'isDestroyed' | 'send'>
+  sender: Pick<WebContents, 'id' | 'isDestroyed' | 'send'>
   /** Renderer-minted id per dropped source; it keys progress events and cancellation. */
   uploadIdsBySourcePath: Record<string, string>
 }
@@ -74,14 +74,18 @@ export async function importSshSourceWithProgress(
   })
   let sentBytes = 0
   emit({ uploadId, sentBytes, totalBytes })
-  const cancellation = registerCancellableUpload(uploadId)
+  const cancellation = registerCancellableUpload(scopeRuntimeUploadId(sender.id, uploadId))
   const trackedSession: FileUploadSession = {
     uploadFile: async (localPath, remotePath, options) => {
       cancellation.signal.throwIfAborted()
+      let createdRemoteFile = false
       try {
         await uploadSession.uploadFile(localPath, remotePath, {
           ...options,
           signal: cancellation.signal,
+          onRemoteCreated: () => {
+            createdRemoteFile = true
+          },
           onBytesTransferred: (bytes) => {
             sentBytes += bytes
             // Why: a source can grow after it was measured; never report past full.
@@ -89,8 +93,9 @@ export async function importSshSourceWithProgress(
           }
         })
       } catch (error) {
-        if (cancellation.signal.aborted && options?.exclusive) {
-          // Why: the exclusive create proves this partial file is ours to remove.
+        // Why: only a file this upload's exclusive open created is ours to remove;
+        // an EEXIST loser must not delete the file another client just wrote.
+        if (cancellation.signal.aborted && options?.exclusive && createdRemoteFile) {
           await provider.deletePath(remotePath, false).catch(() => {})
         }
         throw error
@@ -100,7 +105,14 @@ export async function importSshSourceWithProgress(
     close: () => {}
   }
   try {
-    return await run(trackedSession)
+    const result = await run(trackedSession)
+    // Why: a cancel after the last byte (or on an empty folder) raises nothing,
+    // so the import would otherwise report a source the user asked to drop.
+    if (cancellation.signal.aborted && result.status === 'imported') {
+      await provider.deletePath(result.destPath, result.kind === 'directory').catch(() => {})
+      return { sourcePath, status: 'failed', reason: 'Upload cancelled' }
+    }
+    return result
   } finally {
     cancellation.release()
   }
