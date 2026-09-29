@@ -22,8 +22,12 @@ const IDENTITY_LSTAT_CONCURRENCY = 16
 // meanwhile; past this it is treated as unverifiable, so the window stays bounded however long
 // the queue grows.
 export const IDENTITY_READ_DEADLINE_MS = 1000
+// Why: a slot freed at the deadline leaves its request pending on the relay; past this many
+// unanswered requests, new identities are skipped (unverifiable) instead of piling up.
+export const IDENTITY_OUTSTANDING_LIMIT = 64
 // Why: a relay that stops answering must not hold the rollback; a timed-out check only ever keeps.
-export const ROLLBACK_LSTAT_TIMEOUT_MS = 5000
+// Long enough that a congested but healthy relay does not trip the breaker below.
+export const ROLLBACK_LSTAT_TIMEOUT_MS = 30_000
 
 function expireAfter(ms: number): { expired: Promise<null>; cancel: () => void } {
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -38,6 +42,7 @@ export class SshImportCreatedLedger {
   private readonly removed = new Set<string>()
   private identityReadsInFlight = 0
   private relayStalled = false
+  private identityRequestsOutstanding = 0
   private readonly identityReadQueue: (() => void)[] = []
 
   constructor(
@@ -67,7 +72,17 @@ export class SshImportCreatedLedger {
     late: () => boolean
   ): Promise<FileStat | null> {
     const { expired, cancel } = expireAfter(IDENTITY_READ_DEADLINE_MS)
-    const read = this.withIdentityReadSlot(async () => (late() ? null : lstat(path)), expired)
+    const read = this.withIdentityReadSlot(async () => {
+      if (late() || this.identityRequestsOutstanding >= IDENTITY_OUTSTANDING_LIMIT) {
+        return null
+      }
+      this.identityRequestsOutstanding += 1
+      try {
+        return await lstat(path)
+      } finally {
+        this.identityRequestsOutstanding -= 1
+      }
+    }, expired)
       .then((stat) => (late() ? null : stat))
       .catch(() => null)
     void read.finally(cancel)

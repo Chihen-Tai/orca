@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { FileStat, FileUploadSession, IFilesystemProvider } from '../providers/types'
 import {
+  IDENTITY_OUTSTANDING_LIMIT,
   IDENTITY_READ_DEADLINE_MS,
   ROLLBACK_LSTAT_TIMEOUT_MS,
   SshImportCreatedLedger
@@ -227,6 +228,33 @@ describe('SshImportCreatedLedger identity reads', () => {
       expect(provider.lstat).toHaveBeenCalledTimes(1)
       expect(removeCreatedEntry).not.toHaveBeenCalled()
       expect(ledger.remaining).toEqual(paths.toReversed())
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('skips new identity reads while too many abandoned ones are still pending on the relay', async () => {
+    vi.useFakeTimers()
+    try {
+      const provider = createProvider((path) =>
+        path.startsWith('/r/stalled')
+          ? new Promise<FileStat>(() => {})
+          : Promise.resolve({ size: 0, type: 'file', mtime: 0, dev: 1, ino: path.length })
+      )
+      const ledger = new SshImportCreatedLedger(provider, session)
+      for (let index = 0; index < IDENTITY_OUTSTANDING_LIMIT; index += 1) {
+        ledger.record(`/r/stalled${index}`, 'file', 0)
+        // Why: past each deadline the slots free, so the next batch is sent while these stay pending.
+        if (index % 16 === 15) {
+          await vi.advanceTimersByTimeAsync(IDENTITY_READ_DEADLINE_MS + 1)
+        }
+      }
+      expect(provider.lstat).toHaveBeenCalledTimes(IDENTITY_OUTSTANDING_LIMIT)
+
+      const next = ledger.record('/r/next', 'file', 0)
+      await vi.advanceTimersByTimeAsync(0)
+      await expect(next.identity).resolves.toBeNull()
+      expect(provider.lstat).toHaveBeenCalledTimes(IDENTITY_OUTSTANDING_LIMIT)
     } finally {
       vi.useRealTimers()
     }
