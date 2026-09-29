@@ -15392,7 +15392,6 @@
       "refresh": "Actualizar carpeta",
       "browsing": "Host: {{host}}",
       "parentDirectory": "Carpeta superior",
-      "truncated": "Mostrando {{shown}} de {{total}} elementos. Filtra por nombre para acotar la lista.",
       "contentsUnavailable": "La búsqueda de contenido abarca el espacio de trabajo. Vuelve a la raíz del espacio de trabajo para usarla.",
       "thisFolder": "esta carpeta",
       "enter": "Explorar el sistema de archivos del host",

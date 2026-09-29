@@ -129,6 +129,7 @@ describe('UNC paths', () => {
     )
     expect(parentPath('\\\\?\\C:\\Users\\allen', 'win32')).toBe('\\\\?\\C:\\Users')
     expect(parentPath('\\\\?\\C:\\', 'win32')).toBe('\\\\?\\C:\\')
+    expect(parentPath('\\\\?\\C:', 'win32')).toBe('\\\\?\\C:')
   })
 
   it('joins below a UNC root with a backslash', () => {

@@ -18516,7 +18516,6 @@
       "refresh": "Actualiser le dossier",
       "browsing": "Hôte : {{host}}",
       "parentDirectory": "Dossier parent",
-      "truncated": "Affichage de {{shown}} éléments sur {{total}}. Filtrez par nom pour réduire la liste.",
       "contentsUnavailable": "La recherche de contenu porte sur l’espace de travail. Revenez à la racine de l’espace de travail pour l’utiliser.",
       "thisFolder": "ce dossier",
       "enter": "Parcourir le système de fichiers de l’hôte",

@@ -4,7 +4,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DirEntry } from '../../../../shared/filesystem-entry-types'
-import { FileExplorerHostList, HOST_LIST_RENDER_LIMIT } from './FileExplorerHostList'
+import { FileExplorerHostList } from './FileExplorerHostList'
 import { shouldIgnoreFileExplorerKeyTarget } from './useFileExplorerKeys'
 import type { FileExplorerHostMode } from './use-file-explorer-host-mode'
 
@@ -78,18 +78,18 @@ describe('FileExplorerHostList', () => {
     expect(shouldIgnoreFileExplorerKeyTarget(row ?? null)).toBe(true)
   })
 
-  it('caps very large folders and says how to narrow them', async () => {
-    const many = Array.from({ length: HOST_LIST_RENDER_LIMIT + 5 }, (_, index) => ({
+  it('mounts only a window of rows for very large folders', async () => {
+    const many = Array.from({ length: 50_000 }, (_, index) => ({
       name: `f${index}`,
       isDirectory: false,
       isSymlink: false
     }))
     await render(hostMode(many))
 
-    expect(container.querySelectorAll('button')).toHaveLength(HOST_LIST_RENDER_LIMIT + 1)
-    expect(container.textContent).toContain(
-      `Showing ${HOST_LIST_RENDER_LIMIT} of ${HOST_LIST_RENDER_LIMIT + 5} items`
-    )
+    const mounted = container.querySelectorAll('[data-file-explorer-host-list] button').length
+    expect(container.querySelector('[data-testid="virtualized-list"]')).not.toBeNull()
+    expect(mounted).toBeGreaterThan(0)
+    expect(mounted).toBeLessThan(200)
   })
 
   it('dims the folder on screen while a slow navigation is pending', async () => {

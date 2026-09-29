@@ -77,7 +77,10 @@ export function FileExplorerHostOverlay({
     return null
   }
   return (
-    <div className="absolute inset-0 z-10 flex min-h-0 flex-col bg-background">
+    <div
+      className="absolute inset-0 z-10 flex min-h-0 flex-col bg-background"
+      data-file-explorer-host-overlay=""
+    >
       <div className="flex min-h-0 flex-1 flex-col animate-in fade-in-0 duration-150 ease-out motion-reduce:animate-none">
         <FileExplorerHostBar hostMode={hostMode} />
         <FileExplorerHostList hostMode={hostMode} showDotfiles={showDotfiles} />

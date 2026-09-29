@@ -18516,7 +18516,6 @@
       "refresh": "フォルダーを更新",
       "browsing": "ホスト: {{host}}",
       "parentDirectory": "親フォルダー",
-      "truncated": "{{total}} 件中 {{shown}} 件を表示しています。名前で絞り込んでください。",
       "contentsUnavailable": "内容検索はワークスペースが対象です。使用するにはワークスペースのルートに戻ってください。",
       "thisFolder": "このフォルダー",
       "enter": "ホストのファイルシステムを参照",

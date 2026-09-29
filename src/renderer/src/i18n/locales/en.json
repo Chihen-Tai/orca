@@ -18534,7 +18534,6 @@
       "refresh": "Refresh folder",
       "browsing": "Host: {{host}}",
       "parentDirectory": "Parent directory",
-      "truncated": "Showing {{shown}} of {{total}} items. Filter by name to narrow the list.",
       "contentsUnavailable": "Contents search covers the workspace. Return to the workspace root to use it.",
       "thisFolder": "this folder",
       "enter": "Browse host filesystem",

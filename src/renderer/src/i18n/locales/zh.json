@@ -18516,7 +18516,6 @@
       "refresh": "刷新文件夹",
       "browsing": "主机：{{host}}",
       "parentDirectory": "上级文件夹",
-      "truncated": "正在显示 {{total}} 项中的 {{shown}} 项。请按名称筛选以缩小列表。",
       "contentsUnavailable": "内容搜索的范围是工作区。请返回工作区根目录后使用。",
       "thisFolder": "此文件夹",
       "enter": "浏览主机文件系统",

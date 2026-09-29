@@ -117,9 +117,18 @@ export function useFileExplorerHostBrowser({
   useEffect(() => {
     const generation = ++listingGenerationRef.current
     activationGenerationRef.current++
-    if (sessionKey && worktreePath) {
-      startListing(sessionKey, worktreePath, generation)
+    if (!sessionKey || !worktreePath) {
+      return
     }
+    // Why: reactivating without enter (switching back to this workspace) keeps the folder the
+    // user left on screen and revalidates it, since Host mode has no watcher; only enter()
+    // resets to the workspace root. A request that deactivation cut off is reissued.
+    const retained = sessionRef.current?.key === sessionKey ? sessionRef.current : null
+    startListing(
+      sessionKey,
+      retained?.pendingPath ?? retained?.listing?.resolvedPath ?? worktreePath,
+      generation
+    )
   }, [sessionKey, startListing, worktreePath])
 
   const navigate = useCallback(
