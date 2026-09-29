@@ -179,8 +179,9 @@ describe('SshImportCreatedLedger identity reads', () => {
       })
       const removeCreatedEntry = vi.fn(async () => {})
       const ledger = new SshImportCreatedLedger(provider, { ...session, removeCreatedEntry })
-      ledger.record('/r/ok', 'file', 0)
+      // Why: rollback runs newest first, so /r/ok is checked before the stall trips the breaker.
       ledger.record('/r/stuck', 'file', 0)
+      ledger.record('/r/ok', 'file', 0)
       await vi.advanceTimersByTimeAsync(0)
       let rolledBack = false
       void ledger.rollback().then(() => {
@@ -193,6 +194,39 @@ describe('SshImportCreatedLedger identity reads', () => {
       expect(rolledBack).toBe(true)
       expect(removeCreatedEntry).toHaveBeenCalledExactlyOnceWith('/r/ok', 'file')
       expect(ledger.remaining).toEqual(['/r/stuck'])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('stops checking after one rollback check times out, so a stalled relay costs one timeout', async () => {
+    vi.useFakeTimers()
+    try {
+      let stalled = false
+      const provider = createProvider((path) =>
+        stalled
+          ? new Promise<FileStat>(() => {})
+          : Promise.resolve({ size: 0, type: 'file', mtime: 0, dev: 1, ino: path.length })
+      )
+      const removeCreatedEntry = vi.fn(async () => {})
+      const ledger = new SshImportCreatedLedger(provider, { ...session, removeCreatedEntry })
+      const paths = Array.from({ length: 50 }, (_, index) => `/r/f${index}`)
+      for (const path of paths) {
+        ledger.record(path, 'file', 0)
+      }
+      await vi.advanceTimersByTimeAsync(0)
+      stalled = true
+      vi.mocked(provider.lstat)?.mockClear()
+      let rolledBack = false
+      void ledger.rollback().then(() => {
+        rolledBack = true
+      })
+
+      await vi.advanceTimersByTimeAsync(ROLLBACK_LSTAT_TIMEOUT_MS)
+      expect(rolledBack).toBe(true)
+      expect(provider.lstat).toHaveBeenCalledTimes(1)
+      expect(removeCreatedEntry).not.toHaveBeenCalled()
+      expect(ledger.remaining).toEqual(paths.toReversed())
     } finally {
       vi.useRealTimers()
     }
