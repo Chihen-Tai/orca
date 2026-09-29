@@ -18,6 +18,10 @@ export type CreatedRemoteEntry = {
 // Why: a folder of thousands of small files must not park thousands of relay requests at once
 // on the mux the explorer, watchers and terminals share; the rollback awaits them anyway.
 const IDENTITY_LSTAT_CONCURRENCY = 16
+// Why: an identity read that starts long after the create may observe a node someone swapped in
+// meanwhile; past this it is treated as unverifiable, so the window stays bounded however long
+// the queue grows.
+export const IDENTITY_READ_DEADLINE_MS = 1000
 
 export class SshImportCreatedLedger {
   private readonly created: CreatedRemoteEntry[] = []
@@ -36,15 +40,18 @@ export class SshImportCreatedLedger {
     // Why: not awaited, so the transfer never waits on it; the create was exclusive, so the
     // identity this reads is ours.
     const lstat = this.provider.lstat?.bind(this.provider)
+    const createdAt = Date.now()
     const identity = lstat
-      ? this.withIdentityReadSlot(() => lstat(path)).catch(() => null)
+      ? this.withIdentityReadSlot(() =>
+          Date.now() - createdAt > IDENTITY_READ_DEADLINE_MS ? null : lstat(path)
+        ).catch(() => null)
       : Promise.resolve(null)
     const entry = { path, kind, identity, maxBytes }
     this.created.push(entry)
     return entry
   }
 
-  private async withIdentityReadSlot<T>(read: () => Promise<T>): Promise<T> {
+  private async withIdentityReadSlot<T>(read: () => Promise<T> | T): Promise<T> {
     if (this.identityReadsInFlight >= IDENTITY_LSTAT_CONCURRENCY) {
       await new Promise<void>((resolve) => this.identityReadQueue.push(resolve))
     }
