@@ -227,4 +227,18 @@ describe('FileExplorer Host mode', () => {
 
     expect(h.treeRenders).toBe(rendersBefore)
   })
+
+  it('makes the covered Project query rows unfocusable in Host mode', async () => {
+    await render()
+    const projectFilter = container.querySelector('input[aria-label="Find files"]')
+    const contentsQuery = container.querySelector('[data-testid="contents-query"]')
+    expect(projectFilter?.closest('[inert]')).toBeNull()
+    expect(contentsQuery?.closest('[inert]')).toBeNull()
+
+    await act(async () => h.setHostActive(true))
+
+    expect(projectFilter?.isConnected).toBe(true)
+    expect(projectFilter?.closest('[inert]')).not.toBeNull()
+    expect(contentsQuery?.closest('[inert]')).not.toBeNull()
+  })
 })

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { translate } from '@/i18n/i18n'
 import { useAppStore } from '@/store'
@@ -85,6 +85,23 @@ export function useFileExplorerHostMode({
     setHostWorktreeId(null)
     setFilterQuery('')
   }, [])
+
+  // Why: a workspace Contents search (seed or focus request) must be visible, not run behind the Host overlay.
+  useEffect(() => {
+    if (!active || !activeWorktreeId) {
+      return
+    }
+    return useAppStore.subscribe((state, prev) => {
+      const next = state.fileSearchStateByWorktree[activeWorktreeId]
+      const before = prev.fileSearchStateByWorktree[activeWorktreeId]
+      if (
+        next?.seedRequestId !== before?.seedRequestId ||
+        next?.focusRequestId !== before?.focusRequestId
+      ) {
+        exit()
+      }
+    })
+  }, [active, activeWorktreeId, exit])
 
   const toolbar = useMemo(
     () => ({

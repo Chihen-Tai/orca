@@ -2,7 +2,7 @@ import React from 'react'
 import { translate } from '@/i18n/i18n'
 import type { RightSidebarExplorerView } from '../../../../shared/ui-chrome-types'
 import { FileExplorerNameFilter } from './FileExplorerNameFilter'
-import { useFileExplorerHostModeContext } from './file-explorer-host-mode-context'
+import { useFileExplorerHostModeContext } from './file-explorer-host-mode-context-value'
 
 /** Host mode filters only the listed folder; Contents search stays scoped to Project mode. */
 // Why: covers the Names/Contents slot in place so the Project query rows stay mounted and nothing shifts.

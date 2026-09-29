@@ -1,11 +1,13 @@
-import React, { createContext, useContext } from 'react'
+import React from 'react'
 import { cn } from '@/lib/utils'
 import { FileExplorerHostBar } from './FileExplorerHostBar'
 import { FileExplorerHostList } from './FileExplorerHostList'
 import { FileExplorerToolbar } from './FileExplorerToolbar'
-import { useFileExplorerHostMode, type FileExplorerHostMode } from './use-file-explorer-host-mode'
-
-const HostModeContext = createContext<FileExplorerHostMode | null>(null)
+import {
+  HostModeContext,
+  useFileExplorerHostModeContext
+} from './file-explorer-host-mode-context-value'
+import { useFileExplorerHostMode } from './use-file-explorer-host-mode'
 
 /**
  * Owns Host-mode state below FileExplorerFiles so toggling re-renders only its subscribers;
@@ -22,14 +24,6 @@ export function FileExplorerHostModeProvider({
 }): React.JSX.Element {
   const hostMode = useFileExplorerHostMode({ activeWorktreeId, worktreePath })
   return <HostModeContext.Provider value={hostMode}>{children}</HostModeContext.Provider>
-}
-
-export function useFileExplorerHostModeContext(): FileExplorerHostMode {
-  const hostMode = useContext(HostModeContext)
-  if (!hostMode) {
-    throw new Error('FileExplorerHostModeProvider is missing')
-  }
-  return hostMode
 }
 
 export function FileExplorerHostAwareToolbar(
@@ -56,14 +50,17 @@ export function FileExplorerProjectOnly({
   return <div className={cn(active ? 'hidden' : 'contents')}>{children}</div>
 }
 
+/** Project UI covered by the Host overlay must not take focus or keystrokes (Tab, focus requests). */
 export function FileExplorerHostInertBoundary({
+  className = 'h-full min-h-0',
   children
 }: {
+  className?: string
   children: React.ReactNode
 }): React.JSX.Element {
   const { active } = useFileExplorerHostModeContext()
   return (
-    <div className="h-full min-h-0" inert={active}>
+    <div className={className} inert={active} aria-hidden={active || undefined}>
       {children}
     </div>
   )

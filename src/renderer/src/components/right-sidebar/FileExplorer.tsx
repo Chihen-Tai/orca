@@ -296,27 +296,30 @@ function FileExplorerFiles(): React.JSX.Element {
              switch does not remount or shift when changing modes. */}
           <div className="relative min-h-7">
             <FileExplorerHostQueryRow view={explorerView} />
-            <div
-              className={cn(
-                explorerView !== 'files' && 'pointer-events-none invisible absolute inset-x-0 top-0'
-              )}
-            >
-              <FileExplorerNameFilter
-                query={nameFilterQuery}
-                scopeLabel={rootOptions?.find((option) => option.value === rootChoice)?.label}
-                loading={nameFilterFiles.loading}
-                onQueryChange={setNameFilterQuery}
-                onClear={handleClearNameFilter}
-              />
-            </div>
-            <div
-              className={cn(
-                explorerView !== 'search' &&
-                  'pointer-events-none invisible absolute inset-x-0 top-0'
-              )}
-            >
-              <SearchQueryRow {...searchPanel.queryRowProps} />
-            </div>
+            <FileExplorerHostInertBoundary className="contents">
+              <div
+                className={cn(
+                  explorerView !== 'files' &&
+                    'pointer-events-none invisible absolute inset-x-0 top-0'
+                )}
+              >
+                <FileExplorerNameFilter
+                  query={nameFilterQuery}
+                  scopeLabel={rootOptions?.find((option) => option.value === rootChoice)?.label}
+                  loading={nameFilterFiles.loading}
+                  onQueryChange={setNameFilterQuery}
+                  onClear={handleClearNameFilter}
+                />
+              </div>
+              <div
+                className={cn(
+                  explorerView !== 'search' &&
+                    'pointer-events-none invisible absolute inset-x-0 top-0'
+                )}
+              >
+                <SearchQueryRow {...searchPanel.queryRowProps} />
+              </div>
+            </FileExplorerHostInertBoundary>
           </div>
         </FileExplorerQueryStrip>
         <FileExplorerProjectOnly>
