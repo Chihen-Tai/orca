@@ -1,6 +1,11 @@
 import type { FileUploadSession, IFilesystemProvider } from '../providers/types'
 
-export type CreatedRemoteEntry = { path: string; kind: 'file' | 'directory' }
+export type CreatedRemoteEntry = {
+  path: string
+  kind: 'file' | 'directory'
+  /** Bytes this import wrote at most; a larger file at the path is no longer only ours. */
+  maxBytes?: number
+}
 
 /**
  * What one tracked SSH import created, so a cancel can undo exactly that.
@@ -51,6 +56,14 @@ export class SshImportCreatedLedger {
   }
 
   private async remove(entry: CreatedRemoteEntry): Promise<void> {
+    if (entry.kind === 'file' && entry.maxBytes !== undefined) {
+      // Why: between our create and the cancel, another client may have replaced or grown the
+      // file; anything that is not a regular file within what we wrote is kept and reported.
+      const stat = await this.provider.stat(entry.path)
+      if (stat.type !== 'file' || stat.size > entry.maxBytes) {
+        throw new Error(`${entry.path} changed after this upload created it`)
+      }
+    }
     if (this.session.removeCreatedEntry) {
       await this.session.removeCreatedEntry(entry.path, entry.kind)
       return

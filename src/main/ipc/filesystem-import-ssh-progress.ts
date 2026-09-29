@@ -162,11 +162,15 @@ export async function importSshSourceWithProgress(
   const trackedSession: FileUploadSession = {
     uploadFile: async (localPath, remotePath, options) => {
       signal.throwIfAborted()
+      const maxBytes = await lstat(localPath).then(
+        (stat) => stat.size,
+        () => undefined
+      )
       await uploadSession.uploadFile(localPath, remotePath, {
         ...options,
         signal,
         // Why: only the exclusive open proves the file is ours; an EEXIST loser records nothing.
-        onRemoteCreated: () => ledger.record({ path: remotePath, kind: 'file' }),
+        onRemoteCreated: () => ledger.record({ path: remotePath, kind: 'file', maxBytes }),
         onBytesTransferred: (bytes) => {
           sentBytes += bytes
           report(Math.min(sentBytes, inFlightCap))

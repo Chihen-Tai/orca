@@ -410,13 +410,18 @@ describe('Windows upload over sftp', () => {
       })
     })
 
+    const onRemoteCreated = vi.fn()
     await expect(
       uploadFileViaSystemSsh(target, join(localDir, 'import.bin'), `${remoteRoot}/import.bin`, {
         hostPlatform,
-        exclusive: true
+        exclusive: true,
+        onRemoteCreated
       })
     ).rejects.toThrow()
 
+    // Why: a refused publish means the name belongs to someone else; claiming it would let a
+    // cancel delete their file.
+    expect(onRemoteCreated).not.toHaveBeenCalled()
     const sweep = commands.at(-1)!
     expect(sweep.script).toContain('[System.IO.File]::Delete($staging)')
     // Tolerated, not asserted: the previous writer may still hold the file, and losing contact is

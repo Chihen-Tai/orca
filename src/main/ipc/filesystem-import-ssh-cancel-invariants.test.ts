@@ -36,6 +36,7 @@ class FakeRemote {
   ])
   // Why: lets a test act (cancel, disconnect) at an exact point inside a transfer.
   beforeChunk: (remotePath: string, chunkIndex: number) => Promise<void> | void = () => {}
+  afterUpload: (remotePath: string) => void = () => {}
 
   has(path: string): boolean {
     return this.entries.has(path)
@@ -127,6 +128,7 @@ class FakeRemote {
       entry.content += chunk
       options?.onBytesTransferred?.(chunk.length)
     }
+    this.afterUpload(remotePath)
   }
 }
 
@@ -342,5 +344,23 @@ describe('SSH import cancel invariants', () => {
 
     expect(remote.entries.get('/remote/big.bin')).toMatchObject({ content: 'aaaa' })
     expect(provider.deletePath).not.toHaveBeenCalled()
+  })
+
+  it('keeps a file another client rewrote after our upload finished, and reports it', async () => {
+    const source = await localTree({ 'report.md': 'ours' })
+    registerSshFilesystemProvider('ssh-a', remote.provider('a'))
+    remote.afterUpload = (path) => {
+      // Why: an editor or agent saves over the fresh file before the late cancel is processed.
+      remote.entries.set(path, { kind: 'file', content: 'their longer edit', owner: 'editor' })
+      cancel('u-edit')
+    }
+
+    const { results } = await importWithProgress('ssh-a', join(source, 'report.md'), 'u-edit')
+
+    expect(results[0]).toMatchObject({
+      status: 'failed',
+      reason: 'Upload cancelled; partial upload left at /remote/report.md'
+    })
+    expect(remote.entries.get('/remote/report.md')).toMatchObject({ content: 'their longer edit' })
   })
 })
