@@ -159,4 +159,25 @@ describe('host browse handlers', () => {
     await expect(resolveHostBrowseEntry('/home/allen\0x', 'ssh-1')).rejects.toThrow(/null bytes/)
     expect(provider.realpath).not.toHaveBeenCalled()
   })
+
+  it('treats an SSH file as outside the workspace when the workspace realpath fails', async () => {
+    const provider = {
+      realpath: vi.fn(async (path: string) => {
+        if (path === '/home/allen/codes') {
+          throw new Error('connection lost')
+        }
+        return path
+      }),
+      stat: vi.fn().mockResolvedValue({ type: 'file', size: 1, mtime: 0 })
+    }
+    requireSshFilesystemProviderMock.mockReturnValue(provider)
+
+    await expect(
+      resolveHostBrowseEntry('/home/allen/codes/src/a.ts', 'ssh-1', '/home/allen/codes')
+    ).resolves.toEqual({
+      kind: 'file',
+      realPath: '/home/allen/codes/src/a.ts',
+      workspaceRelativePath: null
+    })
+  })
 })

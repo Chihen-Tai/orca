@@ -41,7 +41,12 @@ export function useFileExplorerHostMode({
     useShallow((s) => getFileExplorerOperationOwnerFromState(s, activeWorktreeId))
   )
   const availability = useMemo(
-    () => getHostBrowseAvailability(owner, typeof window.api.fs.browseHostDir === 'function'),
+    () =>
+      getHostBrowseAvailability(
+        owner,
+        typeof window.api.fs.browseHostDir === 'function' &&
+          typeof window.api.fs.resolveHostBrowseEntry === 'function'
+      ),
     [owner]
   )
   const source = availability.available ? availability.source : null

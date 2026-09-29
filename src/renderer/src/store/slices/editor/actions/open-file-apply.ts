@@ -125,6 +125,9 @@ export function applyOpenFileToState(
         ? true
         : undefined
     const nextHostBrowse = hostOpenOfReadOnlyTab && existing.hostBrowse === true ? true : undefined
+    // Why: read-only opens skip provenance capture; keep the one taken when the tab turns writable.
+    // Restored tabs without provenance keep resolving the owner lazily, as before.
+    const becameWritable = existing.readOnly === true && nextReadOnly !== true
     const needsExistingUpdate =
       existing.mode !== file.mode ||
       existing.diffSource !== file.diffSource ||
@@ -158,9 +161,10 @@ export function applyOpenFileToState(
               language: file.language,
               runtimeEnvironmentId,
               externalSshTargetId: nextExternalSshTargetId,
-              operationProvenance: refreshExternalSshProvenance
-                ? operationProvenance
-                : f.operationProvenance,
+              operationProvenance:
+                refreshExternalSshProvenance || (becameWritable && !f.operationProvenance)
+                  ? operationProvenance
+                  : f.operationProvenance,
               mode: file.mode,
               diffSource: file.diffSource,
               branchCompare: file.branchCompare,

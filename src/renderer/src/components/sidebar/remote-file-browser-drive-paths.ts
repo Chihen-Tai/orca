@@ -78,7 +78,9 @@ export function parentOfUncPath(p: string): string {
   if (parts.kind !== 'unc') {
     return p
   }
-  return driveBreadcrumbPath(parts.uncRoot, parts.segments, parts.segments.length - 2)
+  return parts.segments.length === 0
+    ? p
+    : driveBreadcrumbPath(parts.uncRoot, parts.segments, parts.segments.length - 2)
 }
 
 export function driveBreadcrumbPath(

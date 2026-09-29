@@ -120,7 +120,13 @@ describe('UNC paths', () => {
       '\\\\wsl.localhost\\Ubuntu\\'
     )
     expect(parentPath('\\\\wsl.localhost\\Ubuntu\\', 'win32')).toBe('\\\\wsl.localhost\\Ubuntu\\')
-    expect(parentPath('\\\\server\\share', 'win32')).toBe('\\\\server\\share\\')
+    expect(parentPath('\\\\server\\share', 'win32')).toBe('\\\\server\\share')
+    expect(parentPath('\\\\server\\share\\', 'win32')).toBe('\\\\server\\share\\')
+    expect(parentPath('//server/share', 'win32')).toBe('//server/share')
+    expect(parentPath('\\\\?\\UNC\\server\\share', 'win32')).toBe('\\\\?\\UNC\\server\\share')
+    expect(parentPath('\\\\?\\UNC\\server\\share\\dir', 'win32')).toBe(
+      '\\\\?\\UNC\\server\\share\\'
+    )
     expect(parentPath('\\\\?\\C:\\Users\\allen', 'win32')).toBe('\\\\?\\C:\\Users')
     expect(parentPath('\\\\?\\C:\\', 'win32')).toBe('\\\\?\\C:\\')
   })

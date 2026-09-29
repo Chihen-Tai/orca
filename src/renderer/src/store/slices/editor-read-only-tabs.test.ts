@@ -259,5 +259,52 @@ describe('read-only editor tabs (AI Vault View Log)', () => {
       )
       expect(store.getState().openFiles[0]?.hostBrowse).toBeUndefined()
     })
+
+    it('captures owner provenance when a Host tab turns writable', () => {
+      const store = createEditorStore()
+      openHostTab(store)
+      expect(store.getState().openFiles[0]?.operationProvenance).toBeUndefined()
+
+      store.getState().openFile({
+        filePath: HOST_PATH,
+        relativePath: HOST_PATH,
+        worktreeId: 'wt-1',
+        language: 'shell',
+        mode: 'edit',
+        runtimeEnvironmentId: null
+      })
+
+      expect(store.getState().openFiles[0]?.readOnly).toBeUndefined()
+      expect(store.getState().openFiles[0]?.operationProvenance).toBeDefined()
+    })
+
+    it('keeps restored writable tabs resolving their owner lazily when reopened', () => {
+      const store = createEditorStore()
+      store.getState().openFile({
+        filePath: HOST_PATH,
+        relativePath: HOST_PATH,
+        worktreeId: 'wt-1',
+        language: 'shell',
+        mode: 'edit',
+        runtimeEnvironmentId: null
+      })
+      // Why: hydrated tabs carry no provenance; simulate one.
+      store.setState({
+        openFiles: store
+          .getState()
+          .openFiles.map((file) => ({ ...file, operationProvenance: undefined }))
+      })
+
+      store.getState().openFile({
+        filePath: HOST_PATH,
+        relativePath: HOST_PATH,
+        worktreeId: 'wt-1',
+        language: 'shell',
+        mode: 'edit',
+        runtimeEnvironmentId: null
+      })
+
+      expect(store.getState().openFiles[0]?.operationProvenance).toBeUndefined()
+    })
   })
 })

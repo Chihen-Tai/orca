@@ -25,15 +25,18 @@ export type HostBrowseAvailability =
 
 export function getHostBrowseAvailability(
   owner: FileExplorerOperationOwner,
-  hasLocalHostBrowse: boolean
+  hasDesktopHostBrowse: boolean
 ): HostBrowseAvailability {
   switch (owner.kind) {
     case 'local':
-      return hasLocalHostBrowse
+      return hasDesktopHostBrowse
         ? { available: true, source: { kind: 'local' } }
         : { available: false, reason: 'unsupported-client' }
     case 'ssh':
-      return { available: true, source: { kind: 'ssh', connectionId: owner.connectionId } }
+      // Why: the web client stubs ssh.browseDir with an empty listing and has no entry resolver.
+      return hasDesktopHostBrowse
+        ? { available: true, source: { kind: 'ssh', connectionId: owner.connectionId } }
+        : { available: false, reason: 'unsupported-client' }
     case 'runtime':
       // Why: files.browseServerDir lists the runtime server's own disk, which is not the
       // workspace host when the runtime reaches it over SSH.
@@ -130,9 +133,13 @@ export function planHostFileOpen({
   entryPath: string
   workspaceRelativePath: string | null
 }): HostFileOpenPlan {
-  // Why: a symlink into the workspace must reuse the tree's writable tab, not open a
-  // second read-only tab for the same file.
-  const relativePath = getRelativePathInsideRoot(entryPath, worktreePath) || workspaceRelativePath
+  // Why: local/SSH ownership follows main's canonical verdict, so a workspace symlink that
+  // leaves the workspace stays read-only and one pointing in reuses the tree's tab. Runtimes
+  // expose no realpath outside the worktree, so they fall back to the literal path.
+  const relativePath =
+    source.kind === 'runtime'
+      ? getRelativePathInsideRoot(entryPath, worktreePath)
+      : workspaceRelativePath
   if (relativePath) {
     return {
       kind: 'workspace',

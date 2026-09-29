@@ -52,10 +52,26 @@ describe('getHostBrowseAvailability', () => {
       available: true,
       source: { kind: 'local' }
     })
-    expect(getHostBrowseAvailability({ kind: 'ssh', connectionId: 'ssh-1' }, false)).toEqual({
+    expect(getHostBrowseAvailability({ kind: 'ssh', connectionId: 'ssh-1' }, true)).toEqual({
       available: true,
       source: { kind: 'ssh', connectionId: 'ssh-1' }
     })
+    expect(
+      getHostBrowseAvailability(
+        { kind: 'runtime', environmentId: 'env-1', executionHostId: 'runtime:env-1' },
+        false
+      )
+    ).toEqual({ available: true, source: { kind: 'runtime', environmentId: 'env-1' } })
+  })
+
+  it('refuses SSH on clients without the desktop browse and resolve APIs', () => {
+    expect(getHostBrowseAvailability({ kind: 'ssh', connectionId: 'ssh-1' }, false)).toEqual({
+      available: false,
+      reason: 'unsupported-client'
+    })
+  })
+
+  it('keeps paired-server browsing available on clients without desktop APIs', () => {
     expect(
       getHostBrowseAvailability(
         { kind: 'runtime', environmentId: 'env-1', executionHostId: 'runtime:env-1' },
@@ -200,13 +216,37 @@ describe('planHostFileOpen', () => {
         source: local,
         worktreePath: '/home/allen/codes',
         entryPath: '/home/allen/codes/src/a.ts',
-        workspaceRelativePath: null
+        workspaceRelativePath: 'src/a.ts'
       })
     ).toEqual({
       kind: 'workspace',
       filePath: '/home/allen/codes/src/a.ts',
       relativePath: 'src/a.ts'
     })
+  })
+
+  it('keeps a workspace symlink that leaves the workspace read-only (canonical verdict wins)', () => {
+    for (const source of [local, { kind: 'ssh', connectionId: 'ssh-1' } as const]) {
+      expect(
+        planHostFileOpen({
+          source,
+          worktreePath: '/home/allen/codes',
+          entryPath: '/home/allen/codes/link-out',
+          workspaceRelativePath: null
+        })
+      ).toEqual({ kind: 'external', filePath: '/home/allen/codes/link-out' })
+    }
+  })
+
+  it('falls back to the literal path only for paired servers', () => {
+    expect(
+      planHostFileOpen({
+        source: { kind: 'runtime', environmentId: 'env-1' },
+        worktreePath: '/srv/codes',
+        entryPath: '/srv/codes/src/a.ts',
+        workspaceRelativePath: null
+      })
+    ).toEqual({ kind: 'workspace', filePath: '/srv/codes/src/a.ts', relativePath: 'src/a.ts' })
   })
 
   it('uses canonical ownership so a symlink into the workspace reuses the tree tab', () => {
@@ -247,7 +287,7 @@ describe('planHostFileOpen', () => {
         source: local,
         worktreePath: 'C:\\Users\\allen\\codes',
         entryPath: 'C:\\Users\\allen\\codes\\src\\a.ts',
-        workspaceRelativePath: null
+        workspaceRelativePath: 'src\\a.ts'
       })
     ).toEqual({
       kind: 'workspace',

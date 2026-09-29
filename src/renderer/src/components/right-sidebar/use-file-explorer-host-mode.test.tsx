@@ -47,7 +47,7 @@ beforeEach(async () => {
   }))
   Object.defineProperty(window, 'api', {
     configurable: true,
-    value: { fs: { browseHostDir: vi.fn() } }
+    value: { fs: { browseHostDir: vi.fn(), resolveHostBrowseEntry: vi.fn() } }
   })
   root = createRoot(document.createElement('div'))
   await act(async () => root.render(<Harness />))
