@@ -15,9 +15,15 @@ export type CreatedRemoteEntry = {
  * Why not `rm -rf` of the import root: another client (an agent, an editor) may
  * write into the new folder before the cancel lands, and those files are not ours.
  */
+// Why: a folder of thousands of small files must not park thousands of relay requests at once
+// on the mux the explorer, watchers and terminals share; the rollback awaits them anyway.
+const IDENTITY_LSTAT_CONCURRENCY = 16
+
 export class SshImportCreatedLedger {
   private readonly created: CreatedRemoteEntry[] = []
   private readonly removed = new Set<string>()
+  private identityReadsInFlight = 0
+  private readonly identityReadQueue: (() => void)[] = []
 
   constructor(
     private readonly provider: IFilesystemProvider,
@@ -29,12 +35,26 @@ export class SshImportCreatedLedger {
   record(path: string, kind: 'file' | 'directory', maxBytes: number): CreatedRemoteEntry {
     // Why: not awaited, so the transfer never waits on it; the create was exclusive, so the
     // identity this reads is ours.
-    const identity = this.provider.lstat
-      ? this.provider.lstat(path).catch(() => null)
+    const lstat = this.provider.lstat?.bind(this.provider)
+    const identity = lstat
+      ? this.withIdentityReadSlot(() => lstat(path)).catch(() => null)
       : Promise.resolve(null)
     const entry = { path, kind, identity, maxBytes }
     this.created.push(entry)
     return entry
+  }
+
+  private async withIdentityReadSlot<T>(read: () => Promise<T>): Promise<T> {
+    if (this.identityReadsInFlight >= IDENTITY_LSTAT_CONCURRENCY) {
+      await new Promise<void>((resolve) => this.identityReadQueue.push(resolve))
+    }
+    this.identityReadsInFlight += 1
+    try {
+      return await read()
+    } finally {
+      this.identityReadsInFlight -= 1
+      this.identityReadQueue.shift()?.()
+    }
   }
 
   /**
@@ -75,7 +95,11 @@ export class SshImportCreatedLedger {
       throw new Error(`cannot verify ${entry.path} before removing it`)
     }
     const [created, current] = await Promise.all([entry.identity, this.provider.lstat(entry.path)])
+    // Why: a host that reports inodes but whose identity read failed is unverifiable, not a
+    // licence to fall back to the size check; only an old relay without inodes falls back.
+    const identityUnknown = current.ino !== undefined && created?.ino === undefined
     const changed =
+      identityUnknown ||
       current.type !== entry.kind ||
       (entry.kind === 'file' && current.size > entry.maxBytes) ||
       (created?.ino !== undefined &&

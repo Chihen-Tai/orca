@@ -53,6 +53,8 @@ class FakeRemote {
   // Why: lets a test act (cancel, disconnect) at an exact point inside a transfer.
   beforeChunk: (remotePath: string, chunkIndex: number) => Promise<void> | void = () => {}
   afterUpload: (remotePath: string) => void = () => {}
+  // Why: lets a test fail the identity read taken right after a create.
+  failNextLstat = new Set<string>()
 
   has(path: string): boolean {
     return this.entries.has(path)
@@ -86,6 +88,9 @@ class FakeRemote {
       writeFileBase64: vi.fn(),
       writeFileBase64Chunk: vi.fn(),
       lstat: vi.fn(async (path: string) => {
+        if (this.failNextLstat.delete(path)) {
+          throw new Error('relay busy')
+        }
         const entry = this.entries.get(path)
         if (!entry) {
           throw errno('ENOENT')
@@ -445,5 +450,24 @@ describe('SSH import cancel invariants', () => {
 
     expect(results[0]).toMatchObject({ status: 'failed' })
     expect(remote.entries.get('/remote/log.txt')?.content).toBe('aaaaxxxxxx')
+  })
+
+  it('keeps a file whose identity could not be read at creation, rather than trusting its size', async () => {
+    const source = await localTree({ 'config.json': '{"a":1}' })
+    registerSshFilesystemProvider('ssh-a', remote.provider('a'))
+    remote.failNextLstat.add('/remote/config.json')
+    remote.afterUpload = (path) => {
+      // Why: same size, so with no identity only "cannot verify" keeps the editor's save.
+      remote.entries.set(path, { kind: 'file', content: '{"b":2}', owner: 'editor' })
+      cancel('u-noid')
+    }
+
+    const { results } = await importWithProgress('ssh-a', join(source, 'config.json'), 'u-noid')
+
+    expect(results[0]).toMatchObject({
+      status: 'failed',
+      reason: 'Upload cancelled; partial upload left at /remote/config.json'
+    })
+    expect(remote.entries.get('/remote/config.json')).toMatchObject({ content: '{"b":2}' })
   })
 })
