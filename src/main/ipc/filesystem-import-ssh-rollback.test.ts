@@ -56,9 +56,9 @@ describe('SshImportCreatedLedger identity reads', () => {
     expect(identities.every((identity) => identity !== null)).toBe(true)
   })
 
-  it('gives up on an identity whose read would start past the deadline, so it cannot be a swap', async () => {
+  it('skips an identity read that would start past the deadline', async () => {
     let clock = 0
-    const now = vi.spyOn(Date, 'now').mockImplementation(() => clock)
+    const now = vi.spyOn(performance, 'now').mockImplementation(() => clock)
     const pending: (() => void)[] = []
     const provider = createProvider(async (path) => {
       await new Promise<void>((resolve) => pending.push(resolve))
@@ -78,9 +78,31 @@ describe('SshImportCreatedLedger identity reads', () => {
       }
 
       const identities = await Promise.all(entries.map((entry) => entry.identity))
-      expect(identities.slice(0, 16).every((identity) => identity !== null)).toBe(true)
-      expect(identities.slice(16)).toEqual([null, null, null, null])
+      expect(identities.every((identity) => identity === null)).toBe(true)
       expect(provider.lstat).toHaveBeenCalledTimes(16)
+    } finally {
+      now.mockRestore()
+    }
+  })
+
+  it('drops an identity whose reply arrives past the deadline, since the remote read may have run late', async () => {
+    let clock = 0
+    const now = vi.spyOn(performance, 'now').mockImplementation(() => clock)
+    let release = (): void => {}
+    const provider = createProvider(async (path) => {
+      await new Promise<void>((resolve) => {
+        release = resolve
+      })
+      return { size: 0, type: 'file', mtime: 0, dev: 1, ino: path.length }
+    })
+    const ledger = new SshImportCreatedLedger(provider, session)
+    try {
+      const entry = ledger.record('/r/f', 'file', 0)
+      await vi.waitFor(() => expect(provider.lstat).toHaveBeenCalledTimes(1))
+      clock = IDENTITY_READ_DEADLINE_MS + 1
+      release()
+
+      await expect(entry.identity).resolves.toBeNull()
     } finally {
       now.mockRestore()
     }

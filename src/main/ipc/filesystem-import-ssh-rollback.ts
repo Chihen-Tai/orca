@@ -40,11 +40,13 @@ export class SshImportCreatedLedger {
     // Why: not awaited, so the transfer never waits on it; the create was exclusive, so the
     // identity this reads is ours.
     const lstat = this.provider.lstat?.bind(this.provider)
-    const createdAt = Date.now()
+    const createdAt = performance.now()
+    const late = (): boolean => performance.now() - createdAt > IDENTITY_READ_DEADLINE_MS
+    // Why: a reply that arrives in time proves the remote read ran in time; the start check only skips doomed reads.
     const identity = lstat
-      ? this.withIdentityReadSlot(() =>
-          Date.now() - createdAt > IDENTITY_READ_DEADLINE_MS ? null : lstat(path)
-        ).catch(() => null)
+      ? this.withIdentityReadSlot(async () => (late() ? null : lstat(path)))
+          .then((stat) => (late() ? null : stat))
+          .catch(() => null)
       : Promise.resolve(null)
     const entry = { path, kind, identity, maxBytes }
     this.created.push(entry)
