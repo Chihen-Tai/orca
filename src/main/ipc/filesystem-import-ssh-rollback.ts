@@ -23,6 +23,17 @@ const IDENTITY_LSTAT_CONCURRENCY = 16
 // the queue grows.
 export const IDENTITY_READ_DEADLINE_MS = 1000
 
+// Why: a read that never replies must not hold the rollback; at the deadline it is unverifiable.
+function settleByDeadline(read: Promise<FileStat | null>): Promise<FileStat | null> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(null), IDENTITY_READ_DEADLINE_MS)
+    void read.then((stat) => {
+      clearTimeout(timer)
+      resolve(stat)
+    })
+  })
+}
+
 export class SshImportCreatedLedger {
   private readonly created: CreatedRemoteEntry[] = []
   private readonly removed = new Set<string>()
@@ -44,9 +55,11 @@ export class SshImportCreatedLedger {
     const late = (): boolean => performance.now() - createdAt > IDENTITY_READ_DEADLINE_MS
     // Why: a reply that arrives in time proves the remote read ran in time; the start check only skips doomed reads.
     const identity = lstat
-      ? this.withIdentityReadSlot(async () => (late() ? null : lstat(path)))
-          .then((stat) => (late() ? null : stat))
-          .catch(() => null)
+      ? settleByDeadline(
+          this.withIdentityReadSlot(async () => (late() ? null : lstat(path)))
+            .then((stat) => (late() ? null : stat))
+            .catch(() => null)
+        )
       : Promise.resolve(null)
     const entry = { path, kind, identity, maxBytes }
     this.created.push(entry)

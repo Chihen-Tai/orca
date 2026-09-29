@@ -107,4 +107,35 @@ describe('SshImportCreatedLedger identity reads', () => {
       now.mockRestore()
     }
   })
+
+  it('keeps a file whose identity read never replies and still rolls back the rest', async () => {
+    vi.useFakeTimers()
+    try {
+      let stuckReads = 0
+      const provider = createProvider((path) => {
+        if (path === '/r/stuck' && stuckReads++ === 0) {
+          return new Promise<FileStat>(() => {})
+        }
+        return Promise.resolve({ size: 0, type: 'file', mtime: 0, dev: 1, ino: path.length })
+      })
+      const removeCreatedEntry = vi.fn(async () => {})
+      const ledger = new SshImportCreatedLedger(provider, { ...session, removeCreatedEntry })
+      ledger.record('/r/ok', 'file', 0)
+      ledger.record('/r/stuck', 'file', 0)
+      let rolledBack = false
+      void ledger.rollback().then(() => {
+        rolledBack = true
+      })
+
+      await vi.advanceTimersByTimeAsync(IDENTITY_READ_DEADLINE_MS - 1)
+      expect(rolledBack).toBe(false)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(rolledBack).toBe(true)
+      expect(removeCreatedEntry).toHaveBeenCalledTimes(1)
+      expect(removeCreatedEntry).toHaveBeenCalledWith('/r/ok', 'file')
+      expect(ledger.remaining).toEqual(['/r/stuck'])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })
