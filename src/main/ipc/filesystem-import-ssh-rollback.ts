@@ -22,16 +22,11 @@ const IDENTITY_LSTAT_CONCURRENCY = 16
 // meanwhile; past this it is treated as unverifiable, so the window stays bounded however long
 // the queue grows.
 export const IDENTITY_READ_DEADLINE_MS = 1000
+// Why: a relay that stops answering must not hold the rollback; a timed-out check only ever keeps.
+export const ROLLBACK_LSTAT_TIMEOUT_MS = 5000
 
-// Why: a read that never replies must not hold the rollback; at the deadline it is unverifiable.
-function settleByDeadline(read: Promise<FileStat | null>): Promise<FileStat | null> {
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => resolve(null), IDENTITY_READ_DEADLINE_MS)
-    void read.then((stat) => {
-      clearTimeout(timer)
-      resolve(stat)
-    })
-  })
+function expireAfter(ms: number): Promise<null> {
+  return new Promise((resolve) => setTimeout(() => resolve(null), ms))
 }
 
 export class SshImportCreatedLedger {
@@ -54,29 +49,37 @@ export class SshImportCreatedLedger {
     const createdAt = performance.now()
     const late = (): boolean => performance.now() - createdAt > IDENTITY_READ_DEADLINE_MS
     // Why: a reply that arrives in time proves the remote read ran in time; the start check only skips doomed reads.
+    // Why: a read that never replies must not hold the rollback; at the deadline it is unverifiable.
+    const expired = expireAfter(IDENTITY_READ_DEADLINE_MS)
     const identity = lstat
-      ? settleByDeadline(
-          this.withIdentityReadSlot(async () => (late() ? null : lstat(path)))
+      ? Promise.race([
+          this.withIdentityReadSlot(async () => (late() ? null : lstat(path)), expired)
             .then((stat) => (late() ? null : stat))
-            .catch(() => null)
-        )
+            .catch(() => null),
+          expired
+        ])
       : Promise.resolve(null)
     const entry = { path, kind, identity, maxBytes }
     this.created.push(entry)
     return entry
   }
 
-  private async withIdentityReadSlot<T>(read: () => Promise<T> | T): Promise<T> {
+  private async withIdentityReadSlot<T>(
+    read: () => Promise<T> | T,
+    expired: Promise<null>
+  ): Promise<T> {
     if (this.identityReadsInFlight >= IDENTITY_LSTAT_CONCURRENCY) {
       await new Promise<void>((resolve) => this.identityReadQueue.push(resolve))
     }
     this.identityReadsInFlight += 1
-    try {
-      return await read()
-    } finally {
+    const pending = (async () => read())()
+    const release = (): void => {
       this.identityReadsInFlight -= 1
       this.identityReadQueue.shift()?.()
     }
+    // Why: a stalled read gives its slot back at the deadline; its late reply is discarded anyway.
+    void Promise.race([pending, expired]).then(release, release)
+    return pending
   }
 
   /**
@@ -116,7 +119,13 @@ export class SshImportCreatedLedger {
     if (!this.provider.lstat) {
       throw new Error(`cannot verify ${entry.path} before removing it`)
     }
-    const [created, current] = await Promise.all([entry.identity, this.provider.lstat(entry.path)])
+    const [created, current] = await Promise.all([
+      entry.identity,
+      Promise.race([this.provider.lstat(entry.path), expireAfter(ROLLBACK_LSTAT_TIMEOUT_MS)])
+    ])
+    if (!current) {
+      throw new Error(`could not check ${entry.path} before removing it`)
+    }
     // Why: a host that reports inodes but whose identity read failed is unverifiable, not a
     // licence to fall back to the size check; only an old relay without inodes falls back.
     const identityUnknown = current.ino !== undefined && created?.ino === undefined

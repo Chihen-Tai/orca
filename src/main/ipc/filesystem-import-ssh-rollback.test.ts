@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { FileStat, FileUploadSession, IFilesystemProvider } from '../providers/types'
-import { IDENTITY_READ_DEADLINE_MS, SshImportCreatedLedger } from './filesystem-import-ssh-rollback'
+import {
+  IDENTITY_READ_DEADLINE_MS,
+  ROLLBACK_LSTAT_TIMEOUT_MS,
+  SshImportCreatedLedger
+} from './filesystem-import-ssh-rollback'
 
 function createProvider(lstat: (path: string) => Promise<FileStat>): IFilesystemProvider {
   return {
@@ -133,6 +137,61 @@ describe('SshImportCreatedLedger identity reads', () => {
       expect(rolledBack).toBe(true)
       expect(removeCreatedEntry).toHaveBeenCalledTimes(1)
       expect(removeCreatedEntry).toHaveBeenCalledWith('/r/ok', 'file')
+      expect(ledger.remaining).toEqual(['/r/stuck'])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('frees the slots of stalled reads at the deadline so later files still get an identity', async () => {
+    vi.useFakeTimers()
+    try {
+      const provider = createProvider((path) =>
+        path.startsWith('/r/stalled')
+          ? new Promise<FileStat>(() => {})
+          : Promise.resolve({ size: 0, type: 'file', mtime: 0, dev: 1, ino: path.length })
+      )
+      const ledger = new SshImportCreatedLedger(provider, session)
+      for (let index = 0; index < 16; index += 1) {
+        ledger.record(`/r/stalled${index}`, 'file', 0)
+      }
+      await vi.advanceTimersByTimeAsync(IDENTITY_READ_DEADLINE_MS + 1)
+
+      const next = ledger.record('/r/next', 'file', 0)
+      await vi.advanceTimersByTimeAsync(0)
+      await expect(next.identity).resolves.toMatchObject({ ino: '/r/next'.length })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps a file whose rollback check never replies and still rolls back the rest', async () => {
+    vi.useFakeTimers()
+    try {
+      const reads = new Map<string, number>()
+      const provider = createProvider((path) => {
+        const count = (reads.get(path) ?? 0) + 1
+        reads.set(path, count)
+        if (path === '/r/stuck' && count === 2) {
+          return new Promise<FileStat>(() => {})
+        }
+        return Promise.resolve({ size: 0, type: 'file', mtime: 0, dev: 1, ino: path.length })
+      })
+      const removeCreatedEntry = vi.fn(async () => {})
+      const ledger = new SshImportCreatedLedger(provider, { ...session, removeCreatedEntry })
+      ledger.record('/r/ok', 'file', 0)
+      ledger.record('/r/stuck', 'file', 0)
+      await vi.advanceTimersByTimeAsync(0)
+      let rolledBack = false
+      void ledger.rollback().then(() => {
+        rolledBack = true
+      })
+
+      await vi.advanceTimersByTimeAsync(ROLLBACK_LSTAT_TIMEOUT_MS - 1)
+      expect(rolledBack).toBe(false)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(rolledBack).toBe(true)
+      expect(removeCreatedEntry).toHaveBeenCalledExactlyOnceWith('/r/ok', 'file')
       expect(ledger.remaining).toEqual(['/r/stuck'])
     } finally {
       vi.useRealTimers()
