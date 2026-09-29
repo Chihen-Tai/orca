@@ -194,6 +194,7 @@ export const fsApi = {
         sentBytes: number
         totalBytes: number
         fileSequence?: number
+        kind?: 'file' | 'directory'
       }
     ) => callback(data)
     ipcRenderer.on('fs:uploadProgress', listener)

@@ -1,15 +1,27 @@
-import { ipcMain } from 'electron'
+import { ipcMain, type WebContents } from 'electron'
 import {
   cancelRuntimeUpload,
   forgetRuntimeUploadCancellation,
+  forgetRuntimeUploadCancellationsForSender,
   scopeRuntimeUploadId
 } from './runtime-upload-cancellation'
+import { parseTransferId } from './transfer-id'
 
-function readUploadId(args: unknown): string | null {
-  if (!args || typeof args !== 'object' || !('uploadId' in args)) {
-    return null
+const sendersWithCleanup = new WeakSet<Pick<WebContents, 'once'>>()
+
+function readUploadId(args: unknown): string | undefined {
+  return args && typeof args === 'object' && 'uploadId' in args
+    ? parseTransferId(args.uploadId)
+    : undefined
+}
+
+function forgetCancelsWhenSenderCloses(sender: Pick<WebContents, 'id' | 'once'>): void {
+  if (typeof sender.once !== 'function' || sendersWithCleanup.has(sender)) {
+    return
   }
-  return typeof args.uploadId === 'string' && args.uploadId !== '' ? args.uploadId : null
+  sendersWithCleanup.add(sender)
+  const senderId = sender.id
+  sender.once('destroyed', () => forgetRuntimeUploadCancellationsForSender(senderId))
 }
 
 export function registerRuntimeUploadCancelHandlers(): void {
@@ -18,6 +30,7 @@ export function registerRuntimeUploadCancelHandlers(): void {
   ipcMain.handle('fs:cancelRuntimeUpload', (event, args: unknown): void => {
     const uploadId = readUploadId(args)
     if (uploadId) {
+      forgetCancelsWhenSenderCloses(event.sender)
       cancelRuntimeUpload(scopeRuntimeUploadId(event.sender.id, uploadId))
     }
   })

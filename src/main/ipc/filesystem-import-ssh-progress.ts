@@ -5,9 +5,15 @@ import type { FileUploadSession, IFilesystemProvider } from '../providers/types'
 import type { ImportItemResult } from '../../shared/filesystem-import-result-types'
 import {
   RUNTIME_UPLOAD_PROGRESS_CHANNEL,
-  throttleRuntimeUploadProgress
+  throttleRuntimeUploadProgress,
+  type RuntimeUploadProgress
 } from './runtime-upload-progress'
 import { registerCancellableUpload, scopeRuntimeUploadId } from './runtime-upload-cancellation'
+import {
+  SshImportCreatedLedger,
+  createLedgerTrackedProvider,
+  describeCancelledImport
+} from './filesystem-import-ssh-rollback'
 
 export type SshImportProgressTarget = {
   sender: Pick<WebContents, 'id' | 'isDestroyed' | 'send'>
@@ -32,19 +38,77 @@ export function toSshImportProgressTarget(
   return { sender: event.sender, uploadIdsBySourcePath }
 }
 
-/** Bytes the SSH upload will move; symlinks and special files are skipped there too. */
-export async function measureLocalUploadBytes(path: string): Promise<number> {
-  const stat = await lstat(path)
-  if (stat.isFile()) {
-    return stat.size
+export type SshImportCancellations = {
+  signalFor: (sourcePath: string) => AbortSignal | undefined
+  release: () => void
+}
+
+/**
+ * Registers every dropped source's cancel handle when the IPC starts and releases
+ * them when it returns, so a click on a row that has not started yet is never lost
+ * and nothing depends on the renderer to clean up.
+ */
+export function registerSshImportCancellations(
+  target: SshImportProgressTarget | undefined
+): SshImportCancellations {
+  const registrations = new Map<string, ReturnType<typeof registerCancellableUpload>>()
+  const senderId = target?.sender.id
+  for (const [sourcePath, uploadId] of Object.entries(target?.uploadIdsBySourcePath ?? {})) {
+    if (senderId !== undefined) {
+      registrations.set(
+        sourcePath,
+        registerCancellableUpload(scopeRuntimeUploadId(senderId, uploadId))
+      )
+    }
   }
-  if (!stat.isDirectory()) {
-    return 0
+  return {
+    signalFor: (sourcePath) => registrations.get(sourcePath)?.signal,
+    release: () => {
+      for (const registration of registrations.values()) {
+        registration.release()
+      }
+    }
   }
+}
+
+export type LocalUploadMeasure = { kind: 'file' | 'directory' | null; bytes: number }
+
+/**
+ * Bytes the SSH upload will move. Display-only, so an unreadable subtree is skipped
+ * rather than failing the whole measure and leaving the row stuck at zero.
+ */
+export async function measureLocalUpload(
+  path: string,
+  signal?: AbortSignal
+): Promise<LocalUploadMeasure> {
+  let root: Awaited<ReturnType<typeof lstat>>
+  try {
+    root = await lstat(path)
+  } catch {
+    return { kind: null, bytes: 0 }
+  }
+  if (root.isFile()) {
+    return { kind: 'file', bytes: root.size }
+  }
+  if (!root.isDirectory()) {
+    return { kind: null, bytes: 0 }
+  }
+  return { kind: 'directory', bytes: await measureLocalDirectory(path, signal) }
+}
+
+async function measureLocalDirectory(dirPath: string, signal?: AbortSignal): Promise<number> {
+  signal?.throwIfAborted()
+  const entries = await readdir(dirPath, { withFileTypes: true }).catch(() => [])
   let total = 0
-  for (const entry of await readdir(path, { withFileTypes: true })) {
-    if (entry.isDirectory() || entry.isFile()) {
-      total += await measureLocalUploadBytes(join(path, entry.name))
+  for (const entry of entries) {
+    const childPath = join(dirPath, entry.name)
+    if (entry.isDirectory()) {
+      total += await measureLocalDirectory(childPath, signal)
+    } else if (entry.isFile()) {
+      total += await lstat(childPath).then(
+        (stat) => stat.size,
+        () => 0
+      )
     }
   }
   return total
@@ -56,64 +120,76 @@ export async function measureLocalUploadBytes(path: string): Promise<number> {
  */
 export async function importSshSourceWithProgress(
   target: SshImportProgressTarget | undefined,
+  cancellations: SshImportCancellations,
   sourcePath: string,
-  provider: Pick<IFilesystemProvider, 'deletePath'>,
+  provider: IFilesystemProvider,
   uploadSession: FileUploadSession,
-  run: (session: FileUploadSession) => Promise<ImportItemResult>
+  assertCurrent: (() => void) | undefined,
+  run: (session: FileUploadSession, provider: IFilesystemProvider) => Promise<ImportItemResult>
 ): Promise<ImportItemResult> {
   const uploadId = target?.uploadIdsBySourcePath[sourcePath]
-  if (!target || !uploadId) {
-    return run(uploadSession)
+  const signal = cancellations.signalFor(sourcePath)
+  if (!target || !uploadId || !signal) {
+    return run(uploadSession, provider)
   }
   const { sender } = target
-  const totalBytes = await measureLocalUploadBytes(resolve(sourcePath)).catch(() => 0)
-  const emit = throttleRuntimeUploadProgress((progress) => {
+  const send = (progress: RuntimeUploadProgress): void => {
     if (!sender.isDestroyed()) {
       sender.send(RUNTIME_UPLOAD_PROGRESS_CHANNEL, progress)
     }
-  })
+  }
+  const emit = throttleRuntimeUploadProgress(send)
+  let measure: LocalUploadMeasure
+  try {
+    measure = await measureLocalUpload(resolve(sourcePath), signal)
+  } catch (error) {
+    if (signal.aborted) {
+      return { sourcePath, status: 'failed', reason: describeCancelledImport([]) }
+    }
+    throw error
+  }
+  const { bytes: totalBytes, kind } = measure
+  const report = (sentBytes: number): void =>
+    emit({ uploadId, sentBytes, totalBytes, ...(kind ? { kind } : {}) })
+  // Why: 100% must mean the remote closed every file and the import settled, so a
+  // cancel can never roll back something the user already saw finish.
+  const inFlightCap = totalBytes > 0 ? totalBytes - 1 : Number.POSITIVE_INFINITY
   let sentBytes = 0
-  emit({ uploadId, sentBytes, totalBytes })
-  const cancellation = registerCancellableUpload(scopeRuntimeUploadId(sender.id, uploadId))
+  report(0)
+
+  const ledger = new SshImportCreatedLedger(provider, uploadSession, assertCurrent)
   const trackedSession: FileUploadSession = {
     uploadFile: async (localPath, remotePath, options) => {
-      cancellation.signal.throwIfAborted()
-      let createdRemoteFile = false
-      try {
-        await uploadSession.uploadFile(localPath, remotePath, {
-          ...options,
-          signal: cancellation.signal,
-          onRemoteCreated: () => {
-            createdRemoteFile = true
-          },
-          onBytesTransferred: (bytes) => {
-            sentBytes += bytes
-            // Why: a source can grow after it was measured; never report past full.
-            emit({ uploadId, sentBytes: Math.min(sentBytes, totalBytes), totalBytes })
-          }
-        })
-      } catch (error) {
-        // Why: only a file this upload's exclusive open created is ours to remove;
-        // an EEXIST loser must not delete the file another client just wrote.
-        if (cancellation.signal.aborted && options?.exclusive && createdRemoteFile) {
-          await provider.deletePath(remotePath, false).catch(() => {})
+      signal.throwIfAborted()
+      await uploadSession.uploadFile(localPath, remotePath, {
+        ...options,
+        signal,
+        // Why: only the exclusive open proves the file is ours; an EEXIST loser records nothing.
+        onRemoteCreated: () => ledger.record({ path: remotePath, kind: 'file' }),
+        onBytesTransferred: (bytes) => {
+          sentBytes += bytes
+          report(Math.min(sentBytes, inFlightCap))
         }
-        throw error
-      }
+      })
     },
     // Why: the shared session outlives this source; its owner closes it once.
     close: () => {}
   }
-  try {
-    const result = await run(trackedSession)
-    // Why: a cancel after the last byte (or on an empty folder) raises nothing,
-    // so the import would otherwise report a source the user asked to drop.
-    if (cancellation.signal.aborted && result.status === 'imported') {
-      await provider.deletePath(result.destPath, result.kind === 'directory').catch(() => {})
-      return { sourcePath, status: 'failed', reason: 'Upload cancelled' }
-    }
-    return result
-  } finally {
-    cancellation.release()
+
+  const result = await run(trackedSession, createLedgerTrackedProvider(provider, ledger))
+  if (signal.aborted) {
+    // Why: covers a cancel after the last byte and an empty folder, which raise nothing.
+    await ledger.rollback()
+    return { sourcePath, status: 'failed', reason: describeCancelledImport(ledger.remaining) }
   }
+  if (result.status === 'imported') {
+    // Why: the settled total bypasses the throttle, which may be holding the last slice back.
+    send({
+      uploadId,
+      sentBytes: Math.max(sentBytes, totalBytes),
+      totalBytes,
+      ...(kind ? { kind } : {})
+    })
+  }
+  return result
 }

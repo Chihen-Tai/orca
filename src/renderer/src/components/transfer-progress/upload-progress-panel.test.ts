@@ -2,7 +2,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createUploadProgressPanel } from './upload-progress-panel'
 
 const { panel, openPanel } = vi.hoisted(() => {
-  const panel = { sessionId: 's', updateRow: vi.fn(), settle: vi.fn(), close: vi.fn() }
+  const panel = {
+    sessionId: 's',
+    updateRow: vi.fn(),
+    markCancelling: vi.fn(),
+    settle: vi.fn(),
+    close: vi.fn()
+  }
   return {
     panel,
     openPanel: vi.fn(
@@ -60,7 +66,51 @@ describe('createUploadProgressPanel', () => {
     cancel('u1')
 
     expect(cancelRuntimeUpload).toHaveBeenCalledWith({ uploadId: 'u1' })
-    expect(panel.updateRow).toHaveBeenCalledWith('u1', { status: 'cancelled' })
+    // Why: the click only asks; the result decides the final state.
+    expect(panel.markCancelling).toHaveBeenCalledWith('u1')
     expect(upload.cancelledSourcePaths.has('/local/videos')).toBe(true)
+  })
+
+  it('ends a cancelled source as cancelled, but one that finished anyway as done', () => {
+    const upload = createUploadProgressPanel()
+    upload.progress.onStart([row, { ...row, uploadId: 'u2', sourcePath: '/local/b.txt' }])
+    const cancel = openPanel.mock.calls[0][2]
+    cancel('u1')
+    cancel('u2')
+
+    upload.progress.onRowSettled('u1', 'failed')
+    upload.progress.onRowSettled('u2', 'done')
+
+    expect(panel.updateRow).toHaveBeenCalledWith('u1', { status: 'cancelled' })
+    expect(panel.updateRow).toHaveBeenCalledWith('u2', { status: 'done' })
+  })
+
+  it('carries a folder kind learned from progress into the row', () => {
+    const upload = createUploadProgressPanel()
+    upload.progress.onStart([row])
+    upload.progress.onRowProgress('u1', 0, 364, 'directory')
+
+    expect(panel.updateRow).toHaveBeenCalledWith('u1', {
+      sentBytes: 0,
+      totalBytes: 364,
+      kind: 'directory'
+    })
+  })
+
+  it('keeps what a cancel had to leave on the host on the row, instead of hiding it', () => {
+    const upload = createUploadProgressPanel()
+    upload.progress.onStart([row])
+    openPanel.mock.calls[0][2]('u1')
+
+    upload.progress.onRowSettled(
+      'u1',
+      'failed',
+      'Upload cancelled; partial upload left at /r/videos'
+    )
+
+    expect(panel.updateRow).toHaveBeenCalledWith('u1', {
+      status: 'cancelled',
+      detail: 'Upload cancelled; partial upload left at /r/videos'
+    })
   })
 })

@@ -294,6 +294,9 @@ describe('runtime file client', () => {
     expect(progress.onRowSettled).toHaveBeenCalledWith(uploadId, 'done')
     expect(progress.onFinish).toHaveBeenCalledTimes(1)
     expect(fsReleaseRuntimeUpload).toHaveBeenCalledWith({ uploadId })
+    // Why: a release that raced ahead of a later file's stream would forget that file's cancel.
+    const lastUpload = Math.max(...fsUploadExternalFileToRuntime.mock.invocationCallOrder)
+    expect(fsReleaseRuntimeUpload.mock.invocationCallOrder[0]).toBeGreaterThan(lastUpload)
   })
 
   it('does not commit an upload when the owner generation changes while it streams', async () => {

@@ -133,6 +133,9 @@ export async function downloadRuntimeFile(
   }
 
   if (!(await remoteChunkedDownloadAvailable(remoteArgs))) {
+    // Why: an older server answers in one preview-capped reply (10 MB binary); the panel
+    // still appears so the user sees it working and can cancel before the save.
+    transfer?.trackLocalProgress(null).flush()
     return downloadRemoteFileViaPreview(remoteArgs, suggestedName, transfer?.signal)
   }
 

@@ -278,9 +278,14 @@ function makePosixWriteFileCommand(
  * One open means a path swapped for a symlink mid-upload is never reopened; an existing file
  * fails the create before the marker, so a cancel can tell its own partial file apart.
  */
-function makePosixExclusiveCreateThenAppendCommand(remotePath: string): string {
+export function makePosixExclusiveCreateThenAppendCommand(remotePath: string): string {
   const path = shellEscape(remotePath)
-  return `set -C; exec 3> ${path} && printf '%s\\n' ${REMOTE_CREATED_MARKER} && exec cat >&3`
+  // Why: noclobber still opens an existing FIFO (blocking with no reader), device or symlink.
+  // The pre-check keeps us from ever opening one; the post-check closes the race between
+  // them, so only a regular file we just made reports the marker a cancel may delete.
+  const exists = `[ ! -e ${path} ] && [ ! -L ${path} ]`
+  const regular = `[ -f ${path} ] && [ ! -L ${path} ]`
+  return `set -C; ${exists} && exec 3> ${path} && ${regular} && printf '%s\\n' ${REMOTE_CREATED_MARKER} && exec cat >&3`
 }
 
 function makeWindowsReadFileCommand(remotePath: string): string {

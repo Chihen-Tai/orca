@@ -175,7 +175,7 @@ describe('summarizeTransferSession', () => {
     expect(summary.activeCount).toBe(1)
   })
 
-  it('is zero percent rather than NaN for an all-empty drop', () => {
+  it('claims no percentage rather than NaN when no total is known', () => {
     const summary = summarizeTransferSession({
       sessionId: 's',
       direction: 'upload',
@@ -184,6 +184,45 @@ describe('summarizeTransferSession', () => {
       rows: [row({ sentBytes: 0, totalBytes: 0 })]
     })
 
-    expect(summary.percent).toBe(0)
+    expect(summary.percent).toBeNull()
+  })
+
+  it('counts bytes of a row with no total and marks the header indeterminate', () => {
+    const summary = summarizeTransferSession({
+      sessionId: 's',
+      direction: 'download',
+      settled: false,
+      collapsed: false,
+      rows: [
+        row({ transferId: 'a', sentBytes: 10, totalBytes: 10, status: 'done' }),
+        row({ transferId: 'b', sentBytes: 7, totalBytes: 0 })
+      ]
+    })
+
+    expect(summary.sentBytes).toBe(17)
+    expect(summary.percent).toBeNull()
+  })
+
+  it('lets a cancelling row still move and still take the outcome its result reports', () => {
+    startTransferSession('s', 'download', [row({ status: 'cancelling' })])
+
+    updateTransferRow('s', 'a', { sentBytes: 40 })
+    updateTransferRow('s', 'a', { status: 'active' })
+    updateTransferRow('s', 'a', { status: 'done' })
+
+    expect(getTransferSession('s')?.rows[0]).toMatchObject({ sentBytes: 40, status: 'done' })
+  })
+})
+
+describe('unconfirmed cancels', () => {
+  it('still take the late result, but never slide back to cancelling or active', () => {
+    startTransferSession('s', 'upload', [row({ status: 'unconfirmed' })])
+
+    updateTransferRow('s', 'a', { status: 'cancelling' })
+    updateTransferRow('s', 'a', { status: 'active' })
+    expect(getTransferSession('s')?.rows[0]?.status).toBe('unconfirmed')
+
+    updateTransferRow('s', 'a', { status: 'cancelled' })
+    expect(getTransferSession('s')?.rows[0]?.status).toBe('cancelled')
   })
 })

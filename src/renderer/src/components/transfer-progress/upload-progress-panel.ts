@@ -22,7 +22,7 @@ export function createUploadProgressPanel(): UploadProgressPanel {
     if (sourcePath) {
       cancelledSourcePaths.add(sourcePath)
     }
-    panel?.updateRow(uploadId, { status: 'cancelled' })
+    panel?.markCancelling(uploadId)
     void window.api.fs.cancelRuntimeUpload({ uploadId })
   }
   return {
@@ -42,17 +42,27 @@ export function createUploadProgressPanel(): UploadProgressPanel {
             name: row.name,
             sentBytes: 0,
             totalBytes: row.totalBytes,
-            status: 'active' as const
+            status: 'active' as const,
+            ...(row.kind ? { kind: row.kind } : {})
           })),
           cancelRow
         )
       },
-      onRowProgress: (uploadId, sentBytes, totalBytes) =>
-        panel?.updateRow(
-          uploadId,
-          totalBytes === undefined ? { sentBytes } : { sentBytes, totalBytes }
-        ),
-      onRowSettled: (uploadId, status) => panel?.updateRow(uploadId, { status }),
+      onRowProgress: (uploadId, sentBytes, totalBytes, kind) =>
+        panel?.updateRow(uploadId, {
+          sentBytes,
+          ...(totalBytes === undefined ? {} : { totalBytes }),
+          ...(kind ? { kind } : {})
+        }),
+      onRowSettled: (uploadId, status, detail) => {
+        const sourcePath = sourcePathsByUploadId.get(uploadId)
+        // Why: a cancelled source reports failed; one that finished anyway reports done.
+        const cancelled = sourcePath !== undefined && cancelledSourcePaths.has(sourcePath)
+        panel?.updateRow(uploadId, {
+          status: status === 'failed' && cancelled ? 'cancelled' : status,
+          ...(detail ? { detail } : {})
+        })
+      },
       onFinish: () => panel?.settle()
     },
     cancelledSourcePaths,

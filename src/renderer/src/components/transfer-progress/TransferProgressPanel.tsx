@@ -1,5 +1,12 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
-import { ChevronDownIcon, DownloadIcon, FileIcon, UploadIcon, XIcon } from 'lucide-react'
+import {
+  ChevronDownIcon,
+  DownloadIcon,
+  FileIcon,
+  FolderIcon,
+  UploadIcon,
+  XIcon
+} from 'lucide-react'
 import { Progress } from '@/components/ui/progress'
 import { cn } from '@/lib/utils'
 import { translate } from '@/i18n/i18n'
@@ -90,7 +97,7 @@ export function TransferProgressPanel({
         <span className="min-w-0 flex-1 truncate text-sm">{heading}</span>
         {/* Fixed width so the row never reflows as the number gains digits. */}
         <span className="w-9 shrink-0 text-right text-sm tabular-nums text-muted-foreground">
-          {session.settled ? '' : `${summary.percent}%`}
+          {session.settled || summary.percent === null ? '' : `${summary.percent}%`}
         </span>
         <button
           type="button"
@@ -102,11 +109,8 @@ export function TransferProgressPanel({
           aria-expanded={!collapsed}
           aria-label={
             collapsed
-              ? translate('auto.components.terminal.pane.terminal.drop.upload.expand', 'Show files')
-              : translate(
-                  'auto.components.terminal.pane.terminal.drop.upload.collapse',
-                  'Hide files'
-                )
+              ? translate('transferProgress.showItems', 'Show items')
+              : translate('transferProgress.hideItems', 'Hide items')
           }
           className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
@@ -145,26 +149,28 @@ function TransferRowItem({
   direction: TransferDirection
   onCancel: (transferId: string) => void
 }): React.JSX.Element {
-  const percent = toPercent(row.sentBytes, row.totalBytes)
+  // Why: without a known total a percentage would read as 0% forever; show bytes alone.
+  const percent = row.totalBytes > 0 ? toPercent(row.sentBytes, row.totalBytes) : null
   const inactive = row.status !== 'active'
+  const RowIcon = row.kind === 'directory' ? FolderIcon : FileIcon
 
   return (
     <li className="flex items-center gap-3 px-3 py-2.5">
-      <FileIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+      <RowIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
       <span className="flex min-w-0 flex-1 flex-col gap-0.5 overflow-hidden">
         <span className={cn('truncate text-[13px]', inactive && 'text-muted-foreground')}>
           {row.name}
         </span>
-        <span className="truncate text-xs text-muted-foreground tabular-nums">
+        <span className="truncate text-xs text-muted-foreground tabular-nums" title={row.detail}>
           {rowSubLabel(row)}
         </span>
       </span>
       {/* Dimmed through a wrapper: <Progress> owns its own effects. */}
       <div className={cn('w-24 shrink-0', inactive && 'opacity-40')}>
-        <Progress value={percent} aria-label={row.name} className="h-1.5" />
+        <Progress value={percent ?? 0} aria-label={row.name} className="h-1.5" />
       </div>
       <span className="w-9 shrink-0 text-right text-[13px] tabular-nums text-muted-foreground">
-        {percent}%
+        {percent === null ? '' : `${percent}%`}
       </span>
       {/* Cancel is a back-out, not a destructive action: ghost, no color. */}
       <button
@@ -173,10 +179,7 @@ function TransferRowItem({
         onClick={() => onCancel(row.transferId)}
         aria-label={
           direction === 'upload'
-            ? translate(
-                'auto.components.terminal.pane.terminal.drop.upload.cancel',
-                'Cancel upload'
-              )
+            ? translate('transferProgress.cancelUpload', 'Cancel upload')
             : translate('transferProgress.cancelDownload', 'Cancel download')
         }
         className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-0"
@@ -188,11 +191,20 @@ function TransferRowItem({
 }
 
 function rowSubLabel(row: TransferRow): string {
+  if (row.status === 'cancelling') {
+    return translate('transferProgress.cancelling', 'Cancelling…')
+  }
+  if (row.status === 'unconfirmed') {
+    return translate('transferProgress.cancelUnconfirmed', 'Cancel sent; remote state unconfirmed')
+  }
   if (row.status === 'cancelled') {
-    return translate('auto.components.terminal.pane.terminal.drop.upload.cancelled', 'Cancelled')
+    // Why: a cancel that could not undo everything must say so; the path is in the tooltip.
+    return row.detail
+      ? translate('transferProgress.cancelledPartial', 'Cancelled; partial upload left on host')
+      : translate('transferProgress.cancelled', 'Cancelled')
   }
   if (row.status === 'failed') {
-    return translate('auto.components.terminal.pane.terminal.drop.upload.failed', 'Failed')
+    return translate('transferProgress.failed', 'Failed')
   }
   return formatTransferredOfTotal(row.sentBytes, row.totalBytes)
 }

@@ -15,6 +15,7 @@ import {
 } from './filesystem-import-ssh-directory'
 import {
   importSshSourceWithProgress,
+  registerSshImportCancellations,
   type SshImportProgressTarget
 } from './filesystem-import-ssh-progress'
 
@@ -64,6 +65,7 @@ export async function importExternalPathsSsh(
   }
   options?.assertCurrent?.()
   const uploadSession = await provider.openFileUploadSession()
+  const cancellations = registerSshImportCancellations(options?.progress)
   // Why: filename legality follows the remote filesystem, not the client's OS.
   const remotePathFlavor: RemotePathFlavor = isWindowsAbsolutePathLike(destDir)
     ? 'windows'
@@ -72,12 +74,14 @@ export async function importExternalPathsSsh(
     for (const sourcePath of sourcePaths) {
       const result = await importSshSourceWithProgress(
         options?.progress,
+        cancellations,
         sourcePath,
         provider,
         uploadSession,
-        (session) =>
+        options?.assertCurrent,
+        (session, trackedProvider) =>
           importOneSourceSsh(
-            provider,
+            trackedProvider,
             session,
             sourcePath,
             destDir,
@@ -96,6 +100,7 @@ export async function importExternalPathsSsh(
     }
   } finally {
     uploadSession.close()
+    cancellations.release()
   }
 
   return { results }

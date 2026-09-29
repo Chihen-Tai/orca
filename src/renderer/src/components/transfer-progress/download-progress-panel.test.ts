@@ -3,7 +3,13 @@ import type { RemoteDownloadProgress } from '../../../../shared/remote-download-
 import { runRemoteDownloadWithProgress } from './download-progress-panel'
 
 const { panel, openPanel } = vi.hoisted(() => {
-  const panel = { sessionId: 's', updateRow: vi.fn(), settle: vi.fn(), close: vi.fn() }
+  const panel = {
+    sessionId: 's',
+    updateRow: vi.fn(),
+    markCancelling: vi.fn(),
+    settle: vi.fn(),
+    close: vi.fn()
+  }
   return {
     panel,
     openPanel: vi.fn(
@@ -79,7 +85,8 @@ describe('runRemoteDownloadWithProgress', () => {
 
     await expect(download).resolves.toEqual({ canceled: true })
     expect(cancelDownload).toHaveBeenCalledWith({ downloadId: 'd1' })
-    expect(panel.updateRow).toHaveBeenCalledWith('d1', { status: 'cancelled' })
+    expect(panel.markCancelling).toHaveBeenCalledWith('d1')
+    expect(panel.updateRow).toHaveBeenLastCalledWith('d1', { status: 'cancelled' })
     expect(panel.settle).toHaveBeenCalledTimes(1)
     expect(panel.close).not.toHaveBeenCalled()
   })
@@ -102,5 +109,18 @@ describe('runRemoteDownloadWithProgress', () => {
       return { canceled: false, destinationPath: '/downloads/a.bin' }
     })
     expect(panel.updateRow).toHaveBeenCalledWith('d1', { sentBytes: 3, totalBytes: 8 })
+  })
+
+  it('never claims Cancelled when the download finished before the cancel landed', async () => {
+    const result = await runRemoteDownloadWithProgress(item, async () => {
+      listener?.({ downloadId: 'd1', transferredBytes: 10, totalBytes: 10, completedFiles: 0 })
+      // Why: the click arrives after promote; the result, not the click, decides the row.
+      openPanel.mock.calls[0][2]('d1')
+      return { canceled: false, destinationPath: '/downloads/a.bin' }
+    })
+
+    expect(result).toEqual({ canceled: false, destinationPath: '/downloads/a.bin' })
+    expect(panel.updateRow).not.toHaveBeenCalledWith('d1', { status: 'cancelled' })
+    expect(panel.close).toHaveBeenCalledTimes(1)
   })
 })

@@ -11,7 +11,7 @@ export async function runSshUploadWithProgress<T>(
   sourcePaths: string[],
   handlers: RuntimeImportProgressHandlers | undefined,
   run: (uploadIds: Record<string, string> | undefined) => Promise<T>,
-  outcomeFor: (result: T, sourcePath: string) => 'done' | 'failed'
+  outcomeFor: (result: T, sourcePath: string) => { status: 'done' | 'failed'; detail?: string }
 ): Promise<T> {
   if (!handlers) {
     return run(undefined)
@@ -36,13 +36,14 @@ export async function runSshUploadWithProgress<T>(
   const unsubscribe = window.api.fs.onUploadProgress((event) => {
     // Why: a concurrent drop in another pane shares this channel.
     if (idsInFlight.has(event.uploadId)) {
-      handlers.onRowProgress(event.uploadId, event.sentBytes, event.totalBytes)
+      handlers.onRowProgress(event.uploadId, event.sentBytes, event.totalBytes, event.kind)
     }
   })
   try {
     const result = await run(uploadIds)
     for (const sourcePath of sourcePaths) {
-      handlers.onRowSettled(uploadIds[sourcePath], outcomeFor(result, sourcePath))
+      const outcome = outcomeFor(result, sourcePath)
+      handlers.onRowSettled(uploadIds[sourcePath], outcome.status, outcome.detail)
     }
     return result
   } finally {

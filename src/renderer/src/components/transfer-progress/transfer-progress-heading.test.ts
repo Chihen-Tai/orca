@@ -11,7 +11,7 @@ describe('formatTransferProgressHeading', () => {
         doneCount: 0,
         cancelledCount: 1
       })
-    ).toBe('Uploading 2 files')
+    ).toBe('Uploading 2 items')
   })
 
   it('says cancelled once everything stopped and nothing landed', () => {
@@ -47,7 +47,7 @@ describe('formatTransferProgressHeading', () => {
         doneCount: 2,
         cancelledCount: 0
       })
-    ).toBe('Uploaded 2 files')
+    ).toBe('Uploaded 2 items')
   })
 
   it('distinguishes a failure from a cancel', () => {
@@ -71,7 +71,7 @@ describe('formatTransferProgressHeading', () => {
         doneCount: 0,
         cancelledCount: 0
       })
-    ).toBe('Uploading 1 file')
+    ).toBe('Uploading 1 item')
     expect(
       formatTransferProgressHeading({
         direction: 'upload',
@@ -80,7 +80,7 @@ describe('formatTransferProgressHeading', () => {
         doneCount: 1,
         cancelledCount: 0
       })
-    ).toBe('Uploaded 1 file')
+    ).toBe('Uploaded 1 item')
   })
 
   it('words a download the same way', () => {
@@ -92,7 +92,7 @@ describe('formatTransferProgressHeading', () => {
         doneCount: 0,
         cancelledCount: 0
       })
-    ).toBe('Downloading 1 file')
+    ).toBe('Downloading 1 item')
     expect(
       formatTransferProgressHeading({
         direction: 'download',

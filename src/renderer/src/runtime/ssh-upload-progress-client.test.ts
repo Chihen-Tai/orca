@@ -7,7 +7,12 @@ vi.mock('@/lib/browser-uuid', () => ({
   createBrowserUuid: () => `u${++uuids.next}`
 }))
 
-type ProgressEvent = { uploadId: string; sentBytes: number; totalBytes: number }
+type ProgressEvent = {
+  uploadId: string
+  sentBytes: number
+  totalBytes: number
+  kind?: 'file' | 'directory'
+}
 
 describe('runSshUploadWithProgress', () => {
   let emitProgress: ((event: ProgressEvent) => void) | undefined
@@ -38,9 +43,9 @@ describe('runSshUploadWithProgress', () => {
 
   it('runs without ids when nobody tracks progress', async () => {
     const run = vi.fn().mockResolvedValue('result')
-    await expect(runSshUploadWithProgress(['/a'], undefined, run, () => 'done')).resolves.toBe(
-      'result'
-    )
+    await expect(
+      runSshUploadWithProgress(['/a'], undefined, run, () => ({ status: 'done' }))
+    ).resolves.toBe('result')
     expect(run).toHaveBeenCalledWith(undefined)
   })
 
@@ -48,7 +53,12 @@ describe('runSshUploadWithProgress', () => {
     const handlers = createHandlers()
     const run = vi.fn(async (uploadIds: Record<string, string> | undefined) => {
       emitProgress?.({ uploadId: 'someone-else', sentBytes: 1, totalBytes: 1 })
-      emitProgress?.({ uploadId: uploadIds!['/local/videos'], sentBytes: 5, totalBytes: 10 })
+      emitProgress?.({
+        uploadId: uploadIds!['/local/videos'],
+        sentBytes: 5,
+        totalBytes: 10,
+        kind: 'directory'
+      })
       return { failedPaths: ['/local/b.txt'] }
     })
 
@@ -56,7 +66,10 @@ describe('runSshUploadWithProgress', () => {
       ['/local/videos', '/local/b.txt'],
       handlers,
       run,
-      (result, path) => (result.failedPaths.includes(path) ? 'failed' : 'done')
+      (result, path) =>
+        result.failedPaths.includes(path)
+          ? { status: 'failed', detail: 'Upload cancelled; partial upload left at /r/b.txt' }
+          : { status: 'done' }
     )
 
     expect(run).toHaveBeenCalledWith({ '/local/videos': 'u1', '/local/b.txt': 'u2' })
@@ -64,10 +77,10 @@ describe('runSshUploadWithProgress', () => {
       { uploadId: 'u1', name: 'videos', totalBytes: 0, sourcePath: '/local/videos' },
       { uploadId: 'u2', name: 'b.txt', totalBytes: 0, sourcePath: '/local/b.txt' }
     ])
-    expect(handlers.onRowProgress.mock.calls).toEqual([['u1', 5, 10]])
+    expect(handlers.onRowProgress.mock.calls).toEqual([['u1', 5, 10, 'directory']])
     expect(handlers.onRowSettled.mock.calls).toEqual([
-      ['u1', 'done'],
-      ['u2', 'failed']
+      ['u1', 'done', undefined],
+      ['u2', 'failed', 'Upload cancelled; partial upload left at /r/b.txt']
     ])
     expect(handlers.onFinish).toHaveBeenCalledTimes(1)
     expect(unsubscribe).toHaveBeenCalledTimes(1)
@@ -83,7 +96,7 @@ describe('runSshUploadWithProgress', () => {
         async () => {
           throw new Error('connection dropped')
         },
-        () => 'done'
+        () => ({ status: 'done' })
       )
     ).rejects.toThrow('connection dropped')
     expect(handlers.onRowSettled).not.toHaveBeenCalled()

@@ -33,7 +33,7 @@ export async function runRemoteDownloadWithProgress(
       return
     }
     controller.abort(new Error('Download canceled'))
-    view.panel?.updateRow(downloadId, { status: 'cancelled' })
+    view.panel?.markCancelling(downloadId)
     void window.api.fs.cancelDownload({ downloadId }).catch(() => {})
   }
 
@@ -64,11 +64,13 @@ export async function runRemoteDownloadWithProgress(
       trackLocalProgress: (totalBytes) =>
         createRemoteDownloadProgressTracker({ downloadId, totalBytes, emit: onProgress })
     })
-    // Why: the caller's "Downloaded … / Open" toast states the outcome, so the panel leaves at once.
+    // Why: a cancel that lost the race to completion still ends as a download; the caller's
+    // "Downloaded … / Open" toast states that, so the panel never claims "Cancelled".
     view.panel?.close()
     return result
   } catch (error) {
     if (controller.signal.aborted) {
+      view.panel?.updateRow(downloadId, { status: 'cancelled' })
       view.panel?.settle()
       return { canceled: true }
     }

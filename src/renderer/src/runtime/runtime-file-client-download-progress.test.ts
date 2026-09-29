@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { downloadRuntimeFile } from './runtime-file-client'
 import {
+  fsSaveDownloadedFile,
   fsStartDownloadedFile,
   fsAppendDownloadedFileChunk,
   fsFinishDownloadedFile,
@@ -138,5 +139,47 @@ describe('runtime file download progress', () => {
     ).rejects.toThrow('Download canceled')
     expect(fsFinishDownloadedFile).not.toHaveBeenCalled()
     expect(fsCancelDownloadedFile).toHaveBeenCalledWith({ transferId: 'download-1' })
+  })
+
+  function olderServerReplies() {
+    runtimeEnvironmentCall
+      .mockResolvedValueOnce({
+        id: 'chunk-1',
+        ok: false,
+        error: { code: 'method_not_found', message: 'Unknown method: files.readChunk' },
+        _meta: { runtimeId: 'remote-runtime' }
+      })
+      .mockResolvedValueOnce(rpcResult({ content: 'hello\n', isBinary: false }))
+  }
+
+  it('shows the panel for an older server one-reply download so it can be cancelled', async () => {
+    olderServerReplies()
+    fsSaveDownloadedFile.mockResolvedValue({ canceled: false, destinationPath: '/d/report.txt' })
+    const { transfer, tracker } = createTransfer()
+
+    await downloadRuntimeFile(context, '/remote/repo/report.txt', 'report.txt', transfer)
+
+    expect(transfer.trackLocalProgress).toHaveBeenCalledWith(null)
+    expect(tracker.flush).toHaveBeenCalled()
+  })
+
+  it('saves nothing when an older server download is cancelled before the save', async () => {
+    const { transfer, controller } = createTransfer()
+    runtimeEnvironmentCall
+      .mockResolvedValueOnce({
+        id: 'chunk-1',
+        ok: false,
+        error: { code: 'method_not_found', message: 'Unknown method: files.readChunk' },
+        _meta: { runtimeId: 'remote-runtime' }
+      })
+      .mockImplementationOnce(async () => {
+        controller.abort(new Error('Download canceled'))
+        return rpcResult({ content: 'hello\n', isBinary: false })
+      })
+
+    await expect(
+      downloadRuntimeFile(context, '/remote/repo/report.txt', 'report.txt', transfer)
+    ).rejects.toThrow('Download canceled')
+    expect(fsSaveDownloadedFile).not.toHaveBeenCalled()
   })
 })

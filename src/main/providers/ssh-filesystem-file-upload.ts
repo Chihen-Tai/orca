@@ -1,5 +1,6 @@
 import type { SFTPWrapper } from 'ssh2'
 import { uploadFile as uploadFileViaSftp } from '../ssh/sftp-upload'
+import { removeCreatedSftpEntry } from '../ssh/sftp-remove-created-entry'
 import type { FileUploadSession } from './types'
 import type { RemoteDownloadTransferObserver } from '../../shared/remote-download-progress'
 
@@ -35,6 +36,7 @@ export async function openSshFileUploadSession(
     // channel count even when a directory contains many files.
     uploadFile: (sourcePath, destinationPath, options) =>
       uploadFileViaSftp(sftp, sourcePath, destinationPath, options),
+    removeCreatedEntry: (remotePath, kind) => removeCreatedSftpEntry(sftp, remotePath, kind),
     close: () => sftp.end()
   }
 }

@@ -3,6 +3,7 @@ import {
   createRemoteDownloadProgressTracker,
   type RemoteDownloadTransferObserver
 } from '../../../shared/remote-download-progress'
+import { parseTransferId } from '../transfer-id'
 
 export const REMOTE_DOWNLOAD_PROGRESS_CHANNEL = 'fs:downloadProgress'
 
@@ -20,9 +21,7 @@ function sessionKey(sender: Pick<WebContents, 'id'>, downloadId: string): string
   return `${sender.id}:${downloadId}`
 }
 
-export function parseRemoteDownloadId(value: unknown): string | undefined {
-  return typeof value === 'string' && value.trim() !== '' ? value : undefined
-}
+export const parseRemoteDownloadId = parseTransferId
 
 /** Returns null when the caller did not ask for progress (older renderers, clipboard copies). */
 export function beginRemoteDownloadSession(

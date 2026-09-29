@@ -23,6 +23,13 @@ import {
 import { getActiveRuntimeTarget } from './runtime-rpc-client'
 import { toRuntimeWorktreeSelector } from './runtime-worktree-selector'
 import { runSshUploadWithProgress } from './ssh-upload-progress-client'
+import { isUploadCancelledWithLeftovers } from '../../../shared/ssh-import-cancel-reason'
+
+function leftoverDetail(result: ImportItemResult | undefined): string | undefined {
+  return result?.status === 'failed' && isUploadCancelledWithLeftovers(result.reason)
+    ? result.reason
+    : undefined
+}
 import {
   createRuntimeUploadProgressTracker,
   sumSourceUploadBytes,
@@ -58,10 +65,12 @@ export async function importExternalPathsToRuntime(
             ...(uploadIds ? { uploadIds } : {})
           })
         ),
-      ({ results }, sourcePath) =>
-        results.some((result) => result.sourcePath === sourcePath && result.status === 'imported')
-          ? 'done'
-          : 'failed'
+      ({ results }, sourcePath) => {
+        const result = results.find((entry) => entry.sourcePath === sourcePath)
+        return result?.status === 'imported'
+          ? { status: 'done' }
+          : { status: 'failed', detail: leftoverDetail(result) }
+      }
     )
   }
 
@@ -120,7 +129,8 @@ export async function importExternalPathsToRuntime(
         uploadId: rowUploadId,
         name: source.name,
         totalBytes,
-        sourcePath: source.sourcePath
+        sourcePath: source.sourcePath,
+        kind: source.kind
       })
     }
     handlers.onStart(rows)
@@ -173,7 +183,7 @@ export async function importExternalPathsToRuntime(
             continue
           }
           const fileSequence = sourceUploadId ? nextFileSequence++ : undefined
-          if (sourceUploadId) {
+          if (sourceUploadId && fileSequence !== undefined) {
             trackers.get(sourceUploadId)?.beginFile(fileSequence)
           }
           await uploadRuntimeFileWithoutClobber(

@@ -6,6 +6,8 @@ export type RuntimeUploadProgress = {
   sentBytes: number
   totalBytes: number
   fileSequence?: number
+  /** Sent by SSH imports, which learn it while measuring, so a folder row can say so. */
+  kind?: 'file' | 'directory'
 }
 
 export type RuntimeUploadProgressSink = (progress: RuntimeUploadProgress) => void
@@ -27,7 +29,8 @@ export function throttleRuntimeUploadProgress(
   let lastSentBytes = -1
   let lastEmittedAt = -Infinity
   return (progress) => {
-    const isTerminal = progress.sentBytes >= progress.totalBytes
+    // Why: an unknown total (0) is not "done"; treating it so would forward every slice.
+    const isTerminal = progress.totalBytes > 0 && progress.sentBytes >= progress.totalBytes
     const isFirst = lastSentBytes < 0
     const currentTime = now()
     if (

@@ -23,6 +23,14 @@ registerRuntimeUploadCancelHandlers()
 
 const windowOne = { sender: { id: 1 } }
 
+function closableWindow(id: number) {
+  const listeners: (() => void)[] = []
+  return {
+    sender: { id, once: (_event: string, listener: () => void) => listeners.push(listener) },
+    close: () => listeners.forEach((listener) => listener())
+  }
+}
+
 afterEach(() => {
   forgetRuntimeUploadCancellation(scopeRuntimeUploadId(1, 'u'))
 })
@@ -46,5 +54,15 @@ describe('runtime upload cancel IPC', () => {
       expect(() => handlers.get('fs:cancelRuntimeUpload')!(windowOne, args)).not.toThrow()
       expect(() => handlers.get('fs:releaseRuntimeUpload')!(windowOne, args)).not.toThrow()
     }
+  })
+
+  it("drops a closed window's remembered cancels, since it can never release them", () => {
+    const window = closableWindow(3)
+    handlers.get('fs:cancelRuntimeUpload')!(window, { uploadId: 'u' })
+    expect(isUploadCancelled(scopeRuntimeUploadId(3, 'u'))).toBe(true)
+
+    window.close()
+
+    expect(isUploadCancelled(scopeRuntimeUploadId(3, 'u'))).toBe(false)
   })
 })

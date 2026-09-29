@@ -82,14 +82,22 @@ function classifySftpEntry(entry: FileEntryWithStats): 'directory' | 'file' {
   throw new Error(`Cannot download unsupported remote entry '${entry.filename}'`)
 }
 
-// Why: a size-only pre-walk keeps one running sum, not the file list, so a huge tree stays cheap.
+// Why: a tree with thousands of folders costs one round trip each; past this the
+// download starts without a total rather than sitting at 0 B looking stuck.
+export const REMOTE_TREE_MEASURE_BUDGET_MS = 2000
+
+/** Size-only pre-walk (one running sum, no file list); null once the time budget runs out. */
 async function measureRemoteTree(
   sftp: SFTPWrapper,
   sourceDir: string,
-  options: FolderDownloadOptions
-): Promise<number> {
+  options: FolderDownloadOptions,
+  budget: { deadline: number }
+): Promise<number | null> {
   const { signal, windowsRemotePaths } = options
   signal?.throwIfAborted()
+  if (Date.now() > budget.deadline) {
+    return null
+  }
   let total = 0
   for (const entry of await readDirViaSftp(sftp, sourceDir, { signal })) {
     if (entry.filename === '.' || entry.filename === '..' || entry.attrs.isSymbolicLink()) {
@@ -97,7 +105,11 @@ async function measureRemoteTree(
     }
     if (entry.attrs.isDirectory()) {
       const childDir = joinSftpChildPath(sourceDir, entry.filename, windowsRemotePaths)
-      total += await measureRemoteTree(sftp, childDir, options)
+      const childTotal = await measureRemoteTree(sftp, childDir, options, budget)
+      if (childTotal === null) {
+        return null
+      }
+      total += childTotal
     } else if (entry.attrs.isFile()) {
       total += entry.attrs.size
     }
@@ -230,7 +242,12 @@ export async function downloadFolderViaSftp(
       throw new Error('Cannot download a file as a folder')
     }
     if (options?.onTotalBytes) {
-      options.onTotalBytes(await measureRemoteTree(sftp, sourcePath, options))
+      const total = await measureRemoteTree(sftp, sourcePath, options, {
+        deadline: Date.now() + REMOTE_TREE_MEASURE_BUDGET_MS
+      })
+      if (total !== null) {
+        options.onTotalBytes(total)
+      }
     }
     await downloadDirectoryTree(sftp, sourcePath, destinationPath, options ?? {})
   } finally {

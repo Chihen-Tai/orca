@@ -7,6 +7,7 @@ import {
   showOpenDialogMock,
   statMock,
   renameMock,
+  rmMock,
   getSshFilesystemProviderMock,
   resetFilesystemIpcMocks
 } from './filesystem-test-harness'
@@ -135,6 +136,31 @@ describe('remote download progress IPC', () => {
       })
     ).rejects.toThrow('Download canceled')
     expect(renameMock).not.toHaveBeenCalled()
+  })
+
+  it('leaves an existing destination untouched when the download is cancelled', async () => {
+    const provider = {
+      stat: vi.fn().mockResolvedValue({ size: 10, type: 'file', mtime: 1 }),
+      downloadFile: vi.fn(async (_source: string, _temp: string) => {
+        await handlers.get('fs:cancelDownload')!(event, { downloadId: 'd4' })
+      })
+    }
+    getSshFilesystemProviderMock.mockReturnValue(provider)
+    showSaveDialogMock.mockResolvedValue({ canceled: false, filePath: '/downloads/report.pdf' })
+    // Why: the user chose to overwrite; the original must survive a cancel before promotion.
+    statMock.mockResolvedValue({ isDirectory: () => false })
+
+    await expect(
+      handlers.get('fs:downloadFile')!(event, {
+        filePath: '/remote/report.pdf',
+        connectionId: 'ssh-1',
+        downloadId: 'd4'
+      })
+    ).rejects.toThrow('Download canceled')
+    expect(renameMock).not.toHaveBeenCalled()
+    expect(rmMock).not.toHaveBeenCalledWith('/downloads/report.pdf', expect.anything())
+    const tempPath = provider.downloadFile.mock.calls[0]?.[1]
+    expect(tempPath).not.toBe('/downloads/report.pdf')
   })
 
   it('reports folder progress without a total and links cancel to the folder signal', async () => {

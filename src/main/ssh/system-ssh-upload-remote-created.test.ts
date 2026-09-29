@@ -18,6 +18,8 @@ vi.mock('fs', async (importOriginal) => ({
 vi.mock('child_process', () => ({ spawn: spawnMock }))
 
 import { uploadFileViaSystemSsh } from './ssh-system-fallback'
+import { makeRemoveCreatedEntryCommand } from './system-ssh-remote-remove'
+import { makePosixExclusiveCreateThenAppendCommand } from './system-ssh-file-binary-transfer'
 
 const SYSTEM_SSH_PATH =
   process.platform === 'win32' ? 'C:\\Windows\\System32\\OpenSSH\\ssh.exe' : '/usr/bin/ssh'
@@ -80,7 +82,9 @@ describe('system SSH exclusive upload', () => {
   it('reports the create once the remote shell confirms it made the file', async () => {
     const { command, created } = await upload(true)
     // Why: noclobber fails the create before the marker when the file already exists.
-    expect(command).toContain('set -C; exec 3>')
+    // (The wrapper encodes and chunks the command; the exact shape is pinned by the builder test.)
+    expect(command).toContain('set -C;')
+    // Why: noclobber still opens an existing FIFO/device/symlink; only a regular file may report.
     expect(command).toContain('ORCA_REMOTE_CREATED')
     // Why: writing through the fd opened by the create never reopens a swappable path.
     expect(command).toContain('exec cat >&3')
@@ -90,5 +94,16 @@ describe('system SSH exclusive upload', () => {
 
   it('never reports a create the remote shell did not confirm', async () => {
     expect((await upload(false)).created).toBe(false)
+  })
+
+  it('builds commands that never follow a swapped node or recurse', () => {
+    // Why: noclobber still opens an existing FIFO/device/symlink; only a regular file may report.
+    expect(makePosixExclusiveCreateThenAppendCommand('/r/a b')).toBe(
+      "set -C; [ ! -e '/r/a b' ] && [ ! -L '/r/a b' ] && exec 3> '/r/a b' && [ -f '/r/a b' ] && [ ! -L '/r/a b' ] && printf '%s\\n' ORCA_REMOTE_CREATED && exec cat >&3"
+    )
+    expect(makeRemoveCreatedEntryCommand('/r/a b', 'file')).toBe(
+      "[ -f '/r/a b' ] && [ ! -L '/r/a b' ] && rm -f -- '/r/a b'"
+    )
+    expect(makeRemoveCreatedEntryCommand('/r/a b', 'directory')).toBe("rmdir -- '/r/a b'")
   })
 })

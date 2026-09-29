@@ -2,9 +2,9 @@ export type RuntimeUploadProgressReport = { sentBytes: number; totalBytes: numbe
 
 export type RuntimeUploadProgressTracker = {
   /** Opens the window in which progress for the next file is accepted. */
-  beginFile: (fileSequence?: number) => void
-  /** Bytes of the file currently in flight that have reached the runtime. */
-  reportFileProgress: (sentBytes: number, fileSequence?: number) => void
+  beginFile: (fileSequence: number) => void
+  /** Bytes of the file in flight; an event without this file's sequence is dropped. */
+  reportFileProgress: (sentBytes: number, fileSequence: number | undefined) => void
   /** Called once a file is committed, so its bytes move from in-flight to done. */
   completeFile: (byteLength: number) => void
 }
@@ -45,11 +45,7 @@ export function createRuntimeUploadProgressTracker(
       if (!acceptingProgress) {
         return
       }
-      if (
-        currentFileSequence !== undefined &&
-        fileSequence !== undefined &&
-        fileSequence !== currentFileSequence
-      ) {
+      if (fileSequence === undefined || fileSequence !== currentFileSequence) {
         return
       }
       inFlightBytes = sentBytes
@@ -70,13 +66,20 @@ export type RuntimeImportProgressRow = {
   name: string
   totalBytes: number
   sourcePath: string
+  kind?: 'file' | 'directory'
 }
 
 export type RuntimeImportProgressHandlers = {
   onStart: (rows: RuntimeImportProgressRow[]) => void
-  /** totalBytes is set when the size is only known once the transfer starts (SSH). */
-  onRowProgress: (uploadId: string, sentBytes: number, totalBytes?: number) => void
-  onRowSettled: (uploadId: string, status: 'done' | 'failed') => void
+  /** totalBytes and kind arrive with SSH progress, which learns them only once the source starts. */
+  onRowProgress: (
+    uploadId: string,
+    sentBytes: number,
+    totalBytes?: number,
+    kind?: 'file' | 'directory'
+  ) => void
+  /** `detail` carries what a cancel could not undo, e.g. a partial upload left on the host. */
+  onRowSettled: (uploadId: string, status: 'done' | 'failed', detail?: string) => void
   onFinish: () => void
 }
 

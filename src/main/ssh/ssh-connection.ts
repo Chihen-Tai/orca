@@ -81,12 +81,13 @@ import {
   requiresSystemSshForSecurityKey,
   shouldUseSystemSshTransport
 } from './ssh-transport-selection'
-import type { RemoteHostPlatform } from './ssh-remote-platform'
+import { isWindowsRemoteHost, type RemoteHostPlatform } from './ssh-remote-platform'
 import {
   resolveSftpTransferPathIfMapped,
   type SftpNamespacePathMapping
 } from './sftp-namespace-resolution'
 import type { FileUploadSession } from '../providers/types'
+import { removeCreatedEntryViaSystemSsh } from './system-ssh-remote-remove'
 import type { RemoteDownloadTransferObserver } from '../../shared/remote-download-progress'
 import { isSshSessionLimitError } from './ssh-session-limit-error'
 import { withTimeout } from '../../shared/promise-timeout-fallback'
@@ -586,9 +587,11 @@ export class SshConnection {
     if (!this.useSystemSshTransport) {
       const sftp = await this.sftp()
       const { uploadFile } = await import('./sftp-upload')
+      const { removeCreatedSftpEntry } = await import('./sftp-remove-created-entry')
       return {
         uploadFile: (localPath, remotePath, uploadOptions) =>
           uploadFile(sftp, localPath, remotePath, uploadOptions),
+        removeCreatedEntry: (remotePath, kind) => removeCreatedSftpEntry(sftp, remotePath, kind),
         close: () => sftp.end()
       }
     }
@@ -613,6 +616,16 @@ export class SshConnection {
           linkedSignal.dispose()
         }
       },
+      // Why: a Windows host has no POSIX rmdir/rm; the ledger then reports the partial instead.
+      ...(options?.hostPlatform && isWindowsRemoteHost(options.hostPlatform)
+        ? {}
+        : {
+            removeCreatedEntry: (remotePath: string, kind: 'file' | 'directory') =>
+              removeCreatedEntryViaSystemSsh(this.target, remotePath, kind, {
+                signal,
+                ...buildArgsOptions
+              })
+          }),
       close: () => {}
     }
   }

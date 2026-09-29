@@ -15,6 +15,7 @@ import { pasteResolvedDropPaths } from './terminal-drop-paste'
 import { uploadRuntimeDropPaths } from './terminal-runtime-drop-upload'
 import { createUploadProgressPanel } from '@/components/transfer-progress/upload-progress-panel'
 import { runSshUploadWithProgress } from '@/runtime/ssh-upload-progress-client'
+import { isUploadCancelledWithLeftovers } from '../../../../shared/ssh-import-cancel-reason'
 import { captureTerminalDropTarget } from './terminal-drop-target'
 import { resolveTerminalDropTargetShell } from './terminal-drop-shell'
 import { resolveNativeTerminalDropPane } from './terminal-drop-pane-resolution'
@@ -195,11 +196,16 @@ async function uploadRemoteDropPaths(
           expectedSshConnectionGeneration: args.expectedSshConnectionGeneration,
           ...(uploadIds ? { uploadIds } : {})
         }),
-      (result, sourcePath) =>
-        result.skipped.some((item) => item.sourcePath === sourcePath) ||
-        result.failed.some((item) => item.sourcePath === sourcePath)
-          ? 'failed'
-          : 'done'
+      (result, sourcePath) => {
+        const failure = result.failed.find((item) => item.sourcePath === sourcePath)
+        const skipped = result.skipped.some((item) => item.sourcePath === sourcePath)
+        return failure || skipped
+          ? {
+              status: 'failed',
+              detail: isUploadCancelledWithLeftovers(failure?.reason) ? failure?.reason : undefined
+            }
+          : { status: 'done' }
+      }
     )
     await pasteResolvedDropPaths({ ...args, paths: resolvedPaths, targetShell: args.targetShell })
     reportTerminalDropUploadSkipsAndFailures(

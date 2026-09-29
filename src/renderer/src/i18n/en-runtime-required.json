@@ -2868,16 +2868,16 @@
   "transferProgress": {
     "heading": {
       "download": {
-        "active_one": "Downloading {{count}} file",
-        "active_other": "Downloading {{count}} files",
-        "done_one": "Downloaded {{count}} file",
-        "done_other": "Downloaded {{count}} files"
+        "active_one": "Downloading {{count}} item",
+        "active_other": "Downloading {{count}} items",
+        "done_one": "Downloaded {{count}} item",
+        "done_other": "Downloaded {{count}} items"
       },
       "upload": {
-        "active_one": "Uploading {{count}} file",
-        "active_other": "Uploading {{count}} files",
-        "done_one": "Uploaded {{count}} file",
-        "done_other": "Uploaded {{count}} files"
+        "active_one": "Uploading {{count}} item",
+        "active_other": "Uploading {{count}} items",
+        "done_one": "Uploaded {{count}} item",
+        "done_other": "Uploaded {{count}} items"
       }
     }
   },

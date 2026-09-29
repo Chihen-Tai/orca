@@ -126,4 +126,65 @@ describe('SFTP download progress', () => {
     const total = onBytesTransferred.mock.calls.reduce((sum, [bytes]) => sum + bytes, 0)
     expect(total).toBe(12)
   })
+
+  function folderSftp(onReaddir: () => void = () => {}) {
+    const listings: Record<string, unknown[]> = {
+      '/remote/src': [
+        { filename: 'a.txt', longname: 'a.txt', attrs: sftpStats('file') },
+        { filename: 'lib', longname: 'lib', attrs: sftpStats('directory') }
+      ],
+      '/remote/src/lib': [{ filename: 'b.txt', longname: 'b.txt', attrs: sftpStats('file') }]
+    }
+    return {
+      stat: vi.fn((_path: string, callback: (err: Error | undefined, value: unknown) => void) =>
+        callback(undefined, sftpStats('directory'))
+      ),
+      readdir: vi.fn((path: string, callback: (err: Error | undefined, value: unknown) => void) => {
+        onReaddir()
+        callback(undefined, listings[path])
+      }),
+      fastGet: fastGetReporting([6]),
+      end: vi.fn()
+    }
+  }
+
+  it('gives up on the total past its time budget and still downloads everything', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'orca-ssh-folder-budget-'))
+    roots.push(root)
+    let clock = 0
+    const now = vi.spyOn(Date, 'now').mockImplementation(() => clock)
+    // Why: every listing costs a round trip; pretend the first one took past the budget.
+    const sftp = folderSftp(() => {
+      clock += 5000
+    })
+    const onTotalBytes = vi.fn()
+    try {
+      await downloadFolderViaSftp(async () => asSftp(sftp), '/remote/src', join(root, 'src'), {
+        onTotalBytes,
+        onBytesTransferred: vi.fn()
+      })
+    } finally {
+      now.mockRestore()
+    }
+
+    expect(onTotalBytes).not.toHaveBeenCalled()
+    // Why: the scan stops at the budget instead of walking on beside the download (1 + 2 lists).
+    expect(sftp.readdir).toHaveBeenCalledTimes(3)
+    expect(sftp.fastGet).toHaveBeenCalledTimes(2)
+  })
+
+  it('starts no file transfer when cancelled while the folder is still being measured', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'orca-ssh-folder-measure-cancel-'))
+    roots.push(root)
+    const controller = new AbortController()
+    const sftp = folderSftp(() => controller.abort(new Error('Download canceled')))
+
+    await expect(
+      downloadFolderViaSftp(async () => asSftp(sftp), '/remote/src', join(root, 'src'), {
+        signal: controller.signal,
+        onTotalBytes: vi.fn()
+      })
+    ).rejects.toThrow('Download canceled')
+    expect(sftp.fastGet).not.toHaveBeenCalled()
+  })
 })

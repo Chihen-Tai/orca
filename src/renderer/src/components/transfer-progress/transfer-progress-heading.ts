@@ -20,10 +20,10 @@ export function formatTransferProgressHeading({
   const upload = direction === 'upload'
   if (!settled) {
     return upload
-      ? translate('transferProgress.heading.upload.active', 'Uploading {{count}} files', {
+      ? translate('transferProgress.heading.upload.active', 'Uploading {{count}} items', {
           count: rowCount
         })
-      : translate('transferProgress.heading.download.active', 'Downloading {{count}} files', {
+      : translate('transferProgress.heading.download.active', 'Downloading {{count}} items', {
           count: rowCount
         })
   }
@@ -54,10 +54,10 @@ export function formatTransferProgressHeading({
         )
   }
   return upload
-    ? translate('transferProgress.heading.upload.done', 'Uploaded {{count}} files', {
+    ? translate('transferProgress.heading.upload.done', 'Uploaded {{count}} items', {
         count: rowCount
       })
-    : translate('transferProgress.heading.download.done', 'Downloaded {{count}} files', {
+    : translate('transferProgress.heading.download.done', 'Downloaded {{count}} items', {
         count: rowCount
       })
 }

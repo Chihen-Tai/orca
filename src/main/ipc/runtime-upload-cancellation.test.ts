@@ -6,6 +6,7 @@ import {
   isUploadCancelled,
   registerCancellableUpload,
   RuntimeUploadCancelledError,
+  forgetRuntimeUploadCancellationsForSender,
   scopeRuntimeUploadId
 } from './runtime-upload-cancellation'
 
@@ -66,16 +67,24 @@ describe('runtime upload cancellation', () => {
     expect(scopeRuntimeUploadId(1, 'u')).not.toBe(scopeRuntimeUploadId(2, 'u'))
   })
 
-  it('forgets the oldest unreleased cancels instead of growing without bound', () => {
-    const ids = Array.from({ length: 1025 }, (_, index) => `bulk-${index}`)
-    for (const id of ids) {
-      cancelRuntimeUpload(id)
-    }
-    expect(isUploadCancelled('bulk-0')).toBe(false)
-    expect(isUploadCancelled('bulk-1024')).toBe(true)
-    for (const id of ids) {
-      forgetRuntimeUploadCancellation(id)
-    }
+  it("forgets a closed window's remembered cancels and only that window's", () => {
+    cancelRuntimeUpload(scopeRuntimeUploadId(1, 'a'))
+    cancelRuntimeUpload(scopeRuntimeUploadId(2, 'a'))
+
+    forgetRuntimeUploadCancellationsForSender(1)
+
+    expect(isUploadCancelled(scopeRuntimeUploadId(1, 'a'))).toBe(false)
+    expect(isUploadCancelled(scopeRuntimeUploadId(2, 'a'))).toBe(true)
+    forgetRuntimeUploadCancellation(scopeRuntimeUploadId(2, 'a'))
+  })
+
+  it('keeps a live upload aborted even if its drop is released mid-flight', () => {
+    const live = registerCancellableUpload('u')
+    cancelRuntimeUpload('u')
+    forgetRuntimeUploadCancellation('u')
+
+    expect(live.signal.aborted).toBe(true)
+    live.release()
   })
 
   it('recognises its own error and nothing else', () => {

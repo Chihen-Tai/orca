@@ -168,6 +168,7 @@ export type FilesystemApi = {
         sentBytes: number
         totalBytes: number
         fileSequence?: number
+        kind?: 'file' | 'directory'
       }) => void
     ) => () => void
     cancelRuntimeUpload: (args: { uploadId: string }) => Promise<void>

@@ -142,6 +142,11 @@ export type FileUploadSession = {
       onBytesTransferred?: (bytes: number) => void
     }
   ): Promise<void>
+  /**
+   * Removes one entry this session's upload created, never recursively: a directory
+   * that is not empty stays. Absent where the transport cannot do that safely.
+   */
+  removeCreatedEntry?(path: string, kind: 'file' | 'directory'): Promise<void>
   close(): void
 }
 
