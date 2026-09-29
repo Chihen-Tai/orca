@@ -19,7 +19,23 @@ import {
 } from '../providers/ssh-filesystem-dispatch'
 
 type UploadOptions = Parameters<FileUploadSession['uploadFile']>[2]
-type RemoteEntry = { kind: 'file' | 'directory' | 'fifo'; content: string; owner: string }
+type RemoteEntry = {
+  kind: 'file' | 'directory' | 'fifo' | 'symlink'
+  content: string
+  owner: string
+}
+
+// Why: a new entry object is a new node, so replacing a path changes its inode like a real FS.
+const inodes = new WeakMap<RemoteEntry, number>()
+let nextInode = 1
+function inodeOf(entry: RemoteEntry): number {
+  let inode = inodes.get(entry)
+  if (inode === undefined) {
+    inode = nextInode++
+    inodes.set(entry, inode)
+  }
+  return inode
+}
 
 const SENDER = { id: 5, isDestroyed: () => false, send: vi.fn() }
 const errno = (code: string): Error => Object.assign(new Error(code), { code })
@@ -47,7 +63,8 @@ class FakeRemote {
       uploadFile: (local, remote, options) => this.upload(owner, local, remote, options),
       removeCreatedEntry: async (path, kind) => {
         const entry = this.entries.get(path)
-        if (!entry || entry.kind !== kind) {
+        // Why: like SFTP, unlink removes any non-directory node (a symlink too); rmdir only dirs.
+        if (!entry || (kind === 'directory') !== (entry.kind === 'directory')) {
           throw errno('ENOENT')
         }
         if (
@@ -68,8 +85,20 @@ class FakeRemote {
       writeFile: vi.fn(),
       writeFileBase64: vi.fn(),
       writeFileBase64Chunk: vi.fn(),
-      stat: vi.fn(async (path: string) => {
+      lstat: vi.fn(async (path: string) => {
         const entry = this.entries.get(path)
+        if (!entry) {
+          throw errno('ENOENT')
+        }
+        // Why: like the relay's fileStatFromLstat, a FIFO reports as 'file'; only dev/ino tell it apart.
+        const type =
+          entry.kind === 'directory' || entry.kind === 'symlink' ? entry.kind : ('file' as const)
+        return { size: entry.content.length, type, mtime: 0, dev: 1, ino: inodeOf(entry) }
+      }),
+      stat: vi.fn(async (path: string) => {
+        const linked = this.entries.get(path)
+        // Why: like the relay's fs.stat, follow a symlink to its target.
+        const entry = linked?.kind === 'symlink' ? this.entries.get(linked.content) : linked
         if (!entry) {
           throw errno('ENOENT')
         }
@@ -362,5 +391,59 @@ describe('SSH import cancel invariants', () => {
       reason: 'Upload cancelled; partial upload left at /remote/report.md'
     })
     expect(remote.entries.get('/remote/report.md')).toMatchObject({ content: 'their longer edit' })
+  })
+
+  it('keeps a symlink another client put where our finished file was', async () => {
+    const source = await localTree({ 'notes.txt': 'our notes' })
+    registerSshFilesystemProvider('ssh-a', remote.provider('a'))
+    remote.entries.set('/remote/small.txt', { kind: 'file', content: 'x', owner: 'other' })
+    remote.afterUpload = (path) => {
+      // Why: points at a smaller file, so a size check that follows links would call it ours.
+      remote.entries.set(path, { kind: 'symlink', content: '/remote/small.txt', owner: 'other' })
+      cancel('u-link')
+    }
+
+    const { results } = await importWithProgress('ssh-a', join(source, 'notes.txt'), 'u-link')
+
+    expect(results[0]).toMatchObject({
+      status: 'failed',
+      reason: 'Upload cancelled; partial upload left at /remote/notes.txt'
+    })
+    expect(remote.entries.get('/remote/notes.txt')).toMatchObject({ kind: 'symlink' })
+  })
+
+  it('keeps a same-size file an atomic-rename save put in place of ours', async () => {
+    const source = await localTree({ 'config.json': '{"a":1}' })
+    registerSshFilesystemProvider('ssh-a', remote.provider('a'))
+    remote.afterUpload = (path) => {
+      // Why: same size, so only the changed inode shows it is no longer ours.
+      remote.entries.set(path, { kind: 'file', content: '{"b":2}', owner: 'editor' })
+      cancel('u-rename')
+    }
+
+    const { results } = await importWithProgress('ssh-a', join(source, 'config.json'), 'u-rename')
+
+    expect(results[0]).toMatchObject({ status: 'failed' })
+    expect(remote.entries.get('/remote/config.json')).toMatchObject({ content: '{"b":2}' })
+  })
+
+  it('keeps a file another client appended to after a mid-file cancel', async () => {
+    const source = await localTree({ 'log.txt': 'aaaabbbbccccdddd' })
+    registerSshFilesystemProvider('ssh-a', remote.provider('a'))
+    remote.beforeChunk = (path, chunkIndex) => {
+      if (chunkIndex === 1) {
+        // Why: still under the source size, so only the sent-bytes bound catches the append.
+        const entry = remote.entries.get(path)
+        if (entry) {
+          entry.content += 'xxxxxx'
+        }
+        cancel('u-append')
+      }
+    }
+
+    const { results } = await importWithProgress('ssh-a', join(source, 'log.txt'), 'u-append')
+
+    expect(results[0]).toMatchObject({ status: 'failed' })
+    expect(remote.entries.get('/remote/log.txt')?.content).toBe('aaaaxxxxxx')
   })
 })

@@ -33,6 +33,14 @@ function createProvider(): IFilesystemProvider {
     writeFileBase64: vi.fn(),
     writeFileBase64Chunk: vi.fn(),
     stat: vi.fn(),
+    // Why: one node per path, so the rollback's identity check sees what it recorded.
+    lstat: vi.fn(async (path: string) => ({
+      size: 0,
+      type: path.endsWith('/src') ? ('directory' as const) : ('file' as const),
+      mtime: 0,
+      dev: 1,
+      ino: path.length
+    })),
     deletePath: vi.fn().mockResolvedValue(undefined),
     createFile: vi.fn(),
     createDir: vi.fn(),

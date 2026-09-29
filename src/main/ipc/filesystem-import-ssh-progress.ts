@@ -11,6 +11,7 @@ import {
 import { registerCancellableUpload, scopeRuntimeUploadId } from './runtime-upload-cancellation'
 import { withUploadLeftovers } from '../../shared/ssh-import-cancel-reason'
 import {
+  type CreatedRemoteEntry,
   SshImportCreatedLedger,
   createLedgerTrackedProvider,
   describeCancelledImport
@@ -162,16 +163,27 @@ export async function importSshSourceWithProgress(
   const trackedSession: FileUploadSession = {
     uploadFile: async (localPath, remotePath, options) => {
       signal.throwIfAborted()
-      const maxBytes = await lstat(localPath).then(
+      const sourceBytes = await lstat(localPath).then(
         (stat) => stat.size,
-        () => undefined
+        () => Number.POSITIVE_INFINITY
       )
+      let fileSentBytes = 0
+      let created: CreatedRemoteEntry | undefined
+      // Why: a cancel mid-file leaves only what was sent; bounding by it keeps an append by
+      // another client from passing as ours.
+      const bound = (): number => Math.min(sourceBytes, fileSentBytes)
       await uploadSession.uploadFile(localPath, remotePath, {
         ...options,
         signal,
         // Why: only the exclusive open proves the file is ours; an EEXIST loser records nothing.
-        onRemoteCreated: () => ledger.record({ path: remotePath, kind: 'file', maxBytes }),
+        onRemoteCreated: () => {
+          created = ledger.record(remotePath, 'file', bound())
+        },
         onBytesTransferred: (bytes) => {
+          fileSentBytes += bytes
+          if (created) {
+            created.maxBytes = bound()
+          }
           sentBytes += bytes
           report(Math.min(sentBytes, inFlightCap))
         }

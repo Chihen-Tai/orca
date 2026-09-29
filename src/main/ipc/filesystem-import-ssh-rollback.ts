@@ -1,10 +1,12 @@
-import type { FileUploadSession, IFilesystemProvider } from '../providers/types'
+import type { FileStat, FileUploadSession, IFilesystemProvider } from '../providers/types'
 
 export type CreatedRemoteEntry = {
   path: string
   kind: 'file' | 'directory'
-  /** Bytes this import wrote at most; a larger file at the path is no longer only ours. */
-  maxBytes?: number
+  /** Identity taken right after our exclusive create, so a replaced node is recognised. */
+  identity: Promise<FileStat | null>
+  /** Upper bound on the bytes this import wrote into the file (read-side count, so never low). */
+  maxBytes: number
 }
 
 /**
@@ -23,8 +25,16 @@ export class SshImportCreatedLedger {
     private readonly assertCurrent?: () => void
   ) {}
 
-  record(entry: CreatedRemoteEntry): void {
+  /** Records an entry our exclusive create just made; the returned entry takes later byte counts. */
+  record(path: string, kind: 'file' | 'directory', maxBytes: number): CreatedRemoteEntry {
+    // Why: not awaited, so the transfer never waits on it; the create was exclusive, so the
+    // identity this reads is ours.
+    const identity = this.provider.lstat
+      ? this.provider.lstat(path).catch(() => null)
+      : Promise.resolve(null)
+    const entry = { path, kind, identity, maxBytes }
     this.created.push(entry)
+    return entry
   }
 
   /**
@@ -55,15 +65,29 @@ export class SshImportCreatedLedger {
     }
   }
 
-  private async remove(entry: CreatedRemoteEntry): Promise<void> {
-    if (entry.kind === 'file' && entry.maxBytes !== undefined) {
-      // Why: between our create and the cancel, another client may have replaced or grown the
-      // file; anything that is not a regular file within what we wrote is kept and reported.
-      const stat = await this.provider.stat(entry.path)
-      if (stat.type !== 'file' || stat.size > entry.maxBytes) {
-        throw new Error(`${entry.path} changed after this upload created it`)
-      }
+  /**
+   * Proves the path still holds what we created: lstat (a symlink is never ours), the same
+   * dev/ino as at creation (an atomic-rename save or a swapped node changes them), and no more
+   * bytes than we wrote. A path we cannot verify is kept and reported, never removed.
+   */
+  private async assertStillOurs(entry: CreatedRemoteEntry): Promise<void> {
+    if (!this.provider.lstat) {
+      throw new Error(`cannot verify ${entry.path} before removing it`)
     }
+    const [created, current] = await Promise.all([entry.identity, this.provider.lstat(entry.path)])
+    const changed =
+      current.type !== entry.kind ||
+      (entry.kind === 'file' && current.size > entry.maxBytes) ||
+      (created?.ino !== undefined &&
+        current.ino !== undefined &&
+        (created.ino !== current.ino || created.dev !== current.dev))
+    if (changed) {
+      throw new Error(`${entry.path} changed after this upload created it`)
+    }
+  }
+
+  private async remove(entry: CreatedRemoteEntry): Promise<void> {
+    await this.assertStillOurs(entry)
     if (this.session.removeCreatedEntry) {
       await this.session.removeCreatedEntry(entry.path, entry.kind)
       return
@@ -89,7 +113,7 @@ export function createLedgerTrackedProvider(
       if (property === 'createDirNoClobber') {
         return async (dirPath: string): Promise<void> => {
           await target.createDirNoClobber(dirPath)
-          ledger.record({ path: dirPath, kind: 'directory' })
+          ledger.record(dirPath, 'directory', 0)
         }
       }
       if (property === 'deletePath') {
