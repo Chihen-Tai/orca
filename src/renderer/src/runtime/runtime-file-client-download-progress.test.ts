@@ -182,4 +182,18 @@ describe('runtime file download progress', () => {
     ).rejects.toThrow('Download canceled')
     expect(fsSaveDownloadedFile).not.toHaveBeenCalled()
   })
+
+  it('reports the saved file, not a cancel, when cancel lands after the preview during the save', async () => {
+    olderServerReplies()
+    const { transfer, controller } = createTransfer()
+    fsSaveDownloadedFile.mockImplementation(async () => {
+      // Why: the checkpoint is behind us; the save completes, so the result must say so.
+      controller.abort(new Error('Download canceled'))
+      return { canceled: false, destinationPath: '/d/report.txt' }
+    })
+
+    await expect(
+      downloadRuntimeFile(context, '/remote/repo/report.txt', 'report.txt', transfer)
+    ).resolves.toEqual({ canceled: false, destinationPath: '/d/report.txt' })
+  })
 })
