@@ -234,4 +234,23 @@ describe('useFileExplorerHostBrowser', () => {
     expect(latest.listing).toBeNull()
     expect(latest.error).toMatch(/connection lost/)
   })
+
+  it('keeps the spinner hidden for fast listings and shows it for slow ones', async () => {
+    vi.useFakeTimers()
+    try {
+      await render({ active: true, source: local, worktreePath: '/home/allen/codes' })
+      fetchListingMock.mockImplementationOnce(() => new Promise<HostDirectoryListing>(() => {}))
+
+      await run(() => latest.navigate('/slow'))
+      expect(latest.loading).toBe(true)
+      expect(latest.showLoading).toBe(false)
+
+      await act(async () => {
+        vi.advanceTimersByTime(250)
+      })
+      expect(latest.showLoading).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

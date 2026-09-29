@@ -15,7 +15,11 @@ export function FileExplorerHostBar({
   const returnLabel = translate('fileExplorer.host.returnToProject', 'Return to workspace root')
   const refreshLabel = translate('fileExplorer.host.refresh', 'Refresh folder')
   return (
-    <div className="border-b border-border px-2" data-ignore-file-explorer-keys="true">
+    <div
+      className="shrink-0 border-b border-border px-2"
+      data-file-explorer-host-bar=""
+      data-ignore-file-explorer-keys="true"
+    >
       <div className="flex min-h-8 min-w-0 items-center gap-1">
         <Tooltip>
           <TooltipTrigger asChild>
@@ -44,7 +48,7 @@ export function FileExplorerHostBar({
               disabled={browser.loading}
               onClick={browser.refresh}
             >
-              {browser.loading ? <Loader2 className="animate-spin" /> : <RefreshCw />}
+              {browser.showLoading ? <Loader2 className="animate-spin" /> : <RefreshCw />}
             </Button>
           </TooltipTrigger>
           <TooltipContent>{refreshLabel}</TooltipContent>
@@ -58,7 +62,10 @@ export function FileExplorerHostBar({
           navigate={browser.navigate}
           navigateUp={browser.navigateUp}
         />
-      ) : null}
+      ) : (
+        // Why: reserve the breadcrumb row so the first listing does not grow the bar again.
+        <div className="min-h-[28px]" />
+      )}
     </div>
   )
 }

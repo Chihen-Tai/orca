@@ -95,17 +95,20 @@ export function useFileExplorerHostMode({
     [active, availability, enter, exit]
   )
 
-  return {
-    active,
-    availability,
-    hostLabel,
-    filterQuery,
-    setFilterQuery,
-    enter,
-    exit,
-    browser,
-    toolbar
-  }
+  return useMemo(
+    () => ({
+      active,
+      availability,
+      hostLabel,
+      filterQuery,
+      setFilterQuery,
+      enter,
+      exit,
+      browser,
+      toolbar
+    }),
+    [active, availability, hostLabel, filterQuery, enter, exit, browser, toolbar]
+  )
 }
 
 export function getHostModeUnavailableLabel(availability: HostBrowseAvailability): string | null {

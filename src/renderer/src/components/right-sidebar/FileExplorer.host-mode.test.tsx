@@ -9,6 +9,7 @@ const h = vi.hoisted(() => ({
   setHostActive: (_active: boolean) => {},
   treeMounts: 0,
   treeUnmounts: 0,
+  treeRenders: 0,
   enter: () => {},
   exit: () => {},
   listFiles: vi.fn(),
@@ -41,6 +42,7 @@ vi.mock('@/store/selectors', () => ({
 }))
 vi.mock('./FileExplorerFilesTreePane', () => ({
   FileExplorerFilesTreePane: () => {
+    h.treeRenders += 1
     useEffect(() => {
       h.treeMounts += 1
       return () => {
@@ -157,6 +159,7 @@ beforeEach(() => {
   h.hostActive = false
   h.treeMounts = 0
   h.treeUnmounts = 0
+  h.treeRenders = 0
   Object.defineProperty(window, 'api', {
     configurable: true,
     value: {
@@ -212,5 +215,16 @@ describe('FileExplorer Host mode', () => {
 
     expect(container.querySelector('[data-testid="tree"]')?.closest('[inert]')).toBeNull()
     expect(container.querySelector('[data-testid="host-bar"]')).toBeNull()
+  })
+
+  it('toggles Host mode without re-rendering the Project tree', async () => {
+    await render()
+    const rendersBefore = h.treeRenders
+
+    for (const active of [true, false, true]) {
+      await act(async () => h.setHostActive(active))
+    }
+
+    expect(h.treeRenders).toBe(rendersBefore)
   })
 })

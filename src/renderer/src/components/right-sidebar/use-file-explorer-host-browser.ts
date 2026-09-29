@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
+import { useDelayedStatus } from '@/hooks/use-delayed-status'
 import { translate } from '@/i18n/i18n'
 import { extractIpcErrorMessage } from '@/lib/ipc-error'
 import { isMissingRuntimePathError } from '@/runtime/runtime-file-metadata-client'
@@ -13,9 +14,14 @@ import {
 } from './file-explorer-host-mode'
 import { openHostFile } from './file-explorer-host-open'
 
+// Why: local listings land in a few ms; a spinner that short reads as a glitch (STYLEGUIDE UX rule 1).
+export const HOST_LOADING_SHOW_DELAY_MS = 200
+
 export type FileExplorerHostBrowser = {
   listing: HostDirectoryListing | null
   loading: boolean
+  /** `loading` once it has outlasted HOST_LOADING_SHOW_DELAY_MS; drives visible spinners. */
+  showLoading: boolean
   error: string | null
   canNavigateUp: boolean
   navigate: (dirPath: string) => void
@@ -136,6 +142,8 @@ export function useFileExplorerHostBrowser({
 
   const listing = current?.listing ?? null
   const loading = sessionKey !== null && (current === null || current.pendingPath !== null)
+  const showLoading =
+    useDelayedStatus(sessionKey ?? '', loading ? true : null, HOST_LOADING_SHOW_DELAY_MS) === true
   const currentPath = listing?.resolvedPath ?? null
   const parent = currentPath ? parentPath(currentPath, listing?.pathFlavor ?? 'posix') : null
   const canNavigateUp = !loading && currentPath !== null && parent !== currentPath
@@ -212,15 +220,31 @@ export function useFileExplorerHostBrowser({
     [listing, navigate, source, worktreeId, worktreePath]
   )
 
-  return {
-    listing,
-    loading,
-    error: current?.error ?? null,
-    canNavigateUp,
-    navigate,
-    navigateUp,
-    refresh,
-    activateEntry,
-    reset
-  }
+  const error = current?.error ?? null
+  return useMemo(
+    () => ({
+      listing,
+      loading,
+      showLoading,
+      error,
+      canNavigateUp,
+      navigate,
+      navigateUp,
+      refresh,
+      activateEntry,
+      reset
+    }),
+    [
+      listing,
+      loading,
+      showLoading,
+      error,
+      canNavigateUp,
+      navigate,
+      navigateUp,
+      refresh,
+      activateEntry,
+      reset
+    ]
+  )
 }

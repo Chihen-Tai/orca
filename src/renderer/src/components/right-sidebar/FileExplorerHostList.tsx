@@ -1,6 +1,7 @@
 import React from 'react'
 import { CornerLeftUp, Folder, Link } from 'lucide-react'
 import { translate } from '@/i18n/i18n'
+import { cn } from '@/lib/utils'
 import { getFileTypeIcon } from '@/lib/file-type-icons'
 import type { DirEntry } from '../../../../shared/filesystem-entry-types'
 import { FileExplorerTreeStatus } from './FileExplorerTreeStatus'
@@ -39,7 +40,7 @@ export function FileExplorerHostList({
   const visibleEntries = entries.slice(0, HOST_LIST_RENDER_LIMIT)
   const status = (
     <FileExplorerTreeStatus
-      isLoading={browser.loading && !browser.listing}
+      isLoading={browser.showLoading && !browser.listing}
       error={browser.error}
       isEmpty={browser.listing !== null && entries.length === 0}
       scopedToFolder
@@ -47,7 +48,11 @@ export function FileExplorerHostList({
   )
   return (
     <div
-      className="absolute inset-0 z-10 flex min-h-0 flex-col overflow-y-auto scrollbar-sleek bg-background px-1 py-1"
+      className={cn(
+        'flex min-h-0 flex-1 flex-col overflow-y-auto scrollbar-sleek px-1 py-1 transition-opacity duration-150 motion-reduce:transition-none',
+        // Why: a slow (SSH) navigation dims the folder still on screen instead of freezing silently.
+        browser.showLoading && browser.listing && 'opacity-60'
+      )}
       data-file-explorer-host-list=""
       // Why: tree shortcuts (Delete, rename, paste) act on the hidden tree's selection.
       data-ignore-file-explorer-keys="true"

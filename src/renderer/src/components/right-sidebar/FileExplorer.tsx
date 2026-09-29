@@ -19,7 +19,6 @@ import { FileExplorerBackgroundMenu } from './FileExplorerBackgroundMenu'
 import { FileExplorerFilesTreePane } from './FileExplorerFilesTreePane'
 import { FileExplorerNameFilter } from './FileExplorerNameFilter'
 import { FileExplorerQueryStrip } from './FileExplorerQueryStrip'
-import { FileExplorerToolbar } from './FileExplorerToolbar'
 import { SearchFilters } from './SearchFilters'
 import { SearchQueryRow } from './SearchQueryRow'
 import { SearchResultsPane } from './SearchResultsPane'
@@ -35,9 +34,13 @@ import { useFileExplorerVisibleRowProjection } from './useFileExplorerVisibleRow
 import { useFileExplorerBackgroundMenu } from './use-file-explorer-background-menu'
 import { useFileExplorerNameFilter } from './use-file-explorer-name-filter'
 import { useFileExplorerTreePaneState } from './use-file-explorer-tree-pane-state'
-import { useFileExplorerHostMode } from './use-file-explorer-host-mode'
-import { FileExplorerHostBar } from './FileExplorerHostBar'
-import { FileExplorerHostList } from './FileExplorerHostList'
+import {
+  FileExplorerHostAwareToolbar,
+  FileExplorerHostInertBoundary,
+  FileExplorerHostModeProvider,
+  FileExplorerHostOverlay,
+  FileExplorerProjectOnly
+} from './file-explorer-host-mode-context'
 import { FileExplorerHostQueryRow } from './FileExplorerHostQueryRow'
 import { translate } from '@/i18n/i18n'
 import type { RightSidebarExplorerView } from '../../../../shared/ui-chrome-types'
@@ -68,7 +71,6 @@ function FileExplorerFiles(): React.JSX.Element {
   const rootChoice = resolveExplorerDisplayRootChoice(rootOptions, savedRoot)
   const rootNavigation = useFileExplorerRootNavigation(activeWorktreeId, rootChoice, rootOptions)
   const worktreePath = activeWorktree?.path ?? null
-  const hostMode = useFileExplorerHostMode({ activeWorktreeId, worktreePath })
   const displayRootPath = getExplorerDisplayRootPath(worktreePath, rootChoice)
   const displayDepth = getExplorerDisplayDepth(worktreePath, displayRootPath)
   const isFilesViewActive = explorerView === 'files'
@@ -145,8 +147,7 @@ function FileExplorerFiles(): React.JSX.Element {
   )
   const visibleRowCount = rowProjection.getVisibleCount()
   const manualRefresh = useFileExplorerManualRefresh(tree.refreshTree)
-  const canCollapseAll =
-    isFilesViewActive && !hostMode.active && !hasNameFilter && expanded.size > 0
+  const canCollapseAll = isFilesViewActive && !hasNameFilter && expanded.size > 0
   const handleCollapseAll = useCallback(() => {
     if (!activeWorktreeId || !isFilesViewActive || hasNameFilter) {
       return
@@ -242,7 +243,7 @@ function FileExplorerFiles(): React.JSX.Element {
   }
 
   return (
-    <>
+    <FileExplorerHostModeProvider activeWorktreeId={activeWorktreeId} worktreePath={worktreePath}>
       <div
         ref={rowScrolling.setExplorerShellRef}
         data-orca-explorer-shell
@@ -251,12 +252,12 @@ function FileExplorerFiles(): React.JSX.Element {
         }
         className="flex min-h-0 flex-1 flex-col"
       >
-        <FileExplorerToolbar
+        <FileExplorerHostAwareToolbar
           repoName={repoName}
           worktreePath={worktreePath}
           connectionId={activeRepo?.connectionId ?? null}
           refresh={manualRefresh}
-          canRefresh={isFilesViewActive && !hostMode.active}
+          canRefresh={isFilesViewActive}
           canCollapseAll={canCollapseAll}
           onCollapseAll={handleCollapseAll}
           showGitIgnoredFilesToggle={activeRepoSupportsGit}
@@ -264,43 +265,40 @@ function FileExplorerFiles(): React.JSX.Element {
           onToggleGitIgnoredFiles={toggleGitIgnoredFiles}
           showDotfiles={showDotfiles}
           onToggleDotfiles={handleToggleDotfiles}
-          hostMode={hostMode.toolbar}
         />
-        {hostMode.active && <FileExplorerHostBar hostMode={hostMode} />}
-        {activeWorktree?.isSparse && !hostMode.active && (
-          <FileExplorerScopeNotice
-            rootSelect={
-              isFilesViewActive && rootOptions
-                ? {
-                    options: rootOptions,
-                    value: rootChoice,
-                    onValueChange: rootNavigation.selectRoot,
-                    disabled:
-                      Boolean(paneState.dragDrop.dragSourcePath) ||
-                      paneState.dragDrop.isNativeDragOver
-                  }
-                : null
-            }
-            returnRoot={rootNavigation.returnRoot}
-            onSelectRoot={rootNavigation.selectRoot}
-            disabled={
-              Boolean(paneState.dragDrop.dragSourcePath) || paneState.dragDrop.isNativeDragOver
-            }
-            searching={!isFilesViewActive}
-            sparse={!!activeWorktree?.isSparse}
-          />
+        {activeWorktree?.isSparse && (
+          <FileExplorerProjectOnly>
+            <FileExplorerScopeNotice
+              rootSelect={
+                isFilesViewActive && rootOptions
+                  ? {
+                      options: rootOptions,
+                      value: rootChoice,
+                      onValueChange: rootNavigation.selectRoot,
+                      disabled:
+                        Boolean(paneState.dragDrop.dragSourcePath) ||
+                        paneState.dragDrop.isNativeDragOver
+                    }
+                  : null
+              }
+              returnRoot={rootNavigation.returnRoot}
+              onSelectRoot={rootNavigation.selectRoot}
+              disabled={
+                Boolean(paneState.dragDrop.dragSourcePath) || paneState.dragDrop.isNativeDragOver
+              }
+              searching={!isFilesViewActive}
+              sparse={!!activeWorktree?.isSparse}
+            />
+          </FileExplorerProjectOnly>
         )}
         <FileExplorerQueryStrip view={explorerView} onSelectView={handleSelectExplorerView}>
           {/* Why: keep both query rows mounted and cross-fade so the Names/Contents
              switch does not remount or shift when changing modes. */}
           <div className="relative min-h-7">
-            {hostMode.active && (
-              <FileExplorerHostQueryRow view={explorerView} hostMode={hostMode} />
-            )}
+            <FileExplorerHostQueryRow view={explorerView} />
             <div
               className={cn(
-                (hostMode.active || explorerView !== 'files') &&
-                  'pointer-events-none invisible absolute inset-x-0 top-0'
+                explorerView !== 'files' && 'pointer-events-none invisible absolute inset-x-0 top-0'
               )}
             >
               <FileExplorerNameFilter
@@ -313,7 +311,7 @@ function FileExplorerFiles(): React.JSX.Element {
             </div>
             <div
               className={cn(
-                (hostMode.active || explorerView !== 'search') &&
+                explorerView !== 'search' &&
                   'pointer-events-none invisible absolute inset-x-0 top-0'
               )}
             >
@@ -321,23 +319,23 @@ function FileExplorerFiles(): React.JSX.Element {
             </div>
           </div>
         </FileExplorerQueryStrip>
-        <div
-          className={cn(
-            'border-b border-border px-2 pb-1.5',
-            (hostMode.active || explorerView !== 'search') &&
-              'pointer-events-none invisible h-0 overflow-hidden border-b-0 p-0'
-          )}
-        >
-          <SearchFilters {...searchPanel.filtersProps} />
-        </div>
+        <FileExplorerProjectOnly>
+          <div
+            className={cn(
+              'border-b border-border px-2 pb-1.5',
+              explorerView !== 'search' &&
+                'pointer-events-none invisible h-0 overflow-hidden border-b-0 p-0'
+            )}
+          >
+            <SearchFilters {...searchPanel.filtersProps} />
+          </div>
+        </FileExplorerProjectOnly>
         {/* Why: the Files and Contents views share one body slot; layering them
            avoids remounting heavy virtualized panes while preserving full height. */}
         <div className="relative min-h-0 flex-1 overflow-hidden">
-          {hostMode.active && (
-            <FileExplorerHostList hostMode={hostMode} showDotfiles={showDotfiles} />
-          )}
+          <FileExplorerHostOverlay showDotfiles={showDotfiles} />
           {/* Why: Host mode overlays instead of unmounting so tree caches and listeners survive. */}
-          <div className="h-full min-h-0" inert={hostMode.active}>
+          <FileExplorerHostInertBoundary>
             <FileExplorerFilesTreePane
               displayRootPath={displayRootPath}
               activeRepo={activeRepo}
@@ -379,7 +377,7 @@ function FileExplorerFiles(): React.JSX.Element {
                 </div>
               )}
             </div>
-          </div>
+          </FileExplorerHostInertBoundary>
         </div>
       </div>
 
@@ -391,7 +389,7 @@ function FileExplorerFiles(): React.JSX.Element {
         displayDepth={displayDepth}
         onStartNew={inlineInputState.startNew}
       />
-    </>
+    </FileExplorerHostModeProvider>
   )
 }
 

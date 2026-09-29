@@ -91,4 +91,16 @@ describe('FileExplorerHostList', () => {
       `Showing ${HOST_LIST_RENDER_LIMIT} of ${HOST_LIST_RENDER_LIMIT + 5} items`
     )
   })
+
+  it('dims the folder on screen while a slow navigation is pending', async () => {
+    await render(hostMode([codes], { showLoading: true }))
+    expect(container.querySelector('[data-file-explorer-host-list]')?.className).toContain(
+      'opacity-60'
+    )
+
+    await render(hostMode([codes], { showLoading: false }))
+    expect(container.querySelector('[data-file-explorer-host-list]')?.className).not.toContain(
+      'opacity-60'
+    )
+  })
 })
