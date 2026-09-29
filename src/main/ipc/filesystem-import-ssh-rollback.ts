@@ -11,7 +11,6 @@ export type CreatedRemoteEntry = { path: string; kind: 'file' | 'directory' }
 export class SshImportCreatedLedger {
   private readonly created: CreatedRemoteEntry[] = []
   private readonly removed = new Set<string>()
-  private leftovers: string[] = []
 
   constructor(
     private readonly provider: IFilesystemProvider,
@@ -23,14 +22,19 @@ export class SshImportCreatedLedger {
     this.created.push(entry)
   }
 
-  /** Paths a rollback could not remove; reported instead of swallowed. */
+  /**
+   * What this import created that is still on the host, in reverse creation order:
+   * a rollback's failures, or everything when no rollback ran (a dropped connection).
+   */
   get remaining(): readonly string[] {
-    return this.leftovers
+    return this.created
+      .toReversed()
+      .filter((entry) => !this.removed.has(entry.path))
+      .map((entry) => entry.path)
   }
 
   /** Children first (reverse creation order); a non-empty directory is kept. Idempotent. */
   async rollback(): Promise<void> {
-    const leftovers: string[] = []
     for (const entry of this.created.toReversed()) {
       if (this.removed.has(entry.path)) {
         continue
@@ -41,10 +45,9 @@ export class SshImportCreatedLedger {
         await this.remove(entry)
         this.removed.add(entry.path)
       } catch {
-        leftovers.push(entry.path)
+        // Why: kept in `remaining`, which the result reports instead of swallowing.
       }
     }
-    this.leftovers = leftovers
   }
 
   private async remove(entry: CreatedRemoteEntry): Promise<void> {

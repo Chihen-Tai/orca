@@ -302,7 +302,10 @@ describe('SSH import cancel invariants', () => {
 
     const { results } = await importWithProgress('ssh-a', join(source, 'big.bin'), 'u-drop')
 
-    expect(results[0]).toMatchObject({ status: 'failed', reason: 'Remote connection dropped' })
+    expect(results[0]).toMatchObject({
+      status: 'failed',
+      reason: 'Remote connection dropped; partial upload left at /remote/big.bin'
+    })
     // Why: loss of contact is not the user's cancel; the partial stays for the user to judge.
     expect(remote.entries.get('/remote/big.bin')).toMatchObject({ content: 'aaaa' })
   })

@@ -184,7 +184,8 @@ export async function importSshSourceWithProgress(
     return { sourcePath, status: 'failed', reason: describeCancelledImport(ledger.remaining) }
   }
   if (result.status === 'failed' && ledger.remaining.length > 0) {
-    // Why: a non-cancel failure rolls back through the same ledger; its leftovers get reported too.
+    // Why: a failure that is not a cancel keeps what it could not (or, on a dropped connection,
+    // did not try to) roll back, and the user must be told the partial is there.
     return { ...result, reason: withUploadLeftovers(result.reason, ledger.remaining) }
   }
   if (result.status === 'imported') {
