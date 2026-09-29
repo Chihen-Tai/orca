@@ -173,24 +173,33 @@ describe('SSH import progress', () => {
     expect(session.close).not.toHaveBeenCalled()
   })
 
-  it('shows moved bytes when the size is unknown instead of pinning them to zero', async () => {
+  it('shows moved bytes mid-transfer when the size is unknown instead of pinning them to zero', async () => {
     const sender = createSender()
-    const session = createSession(async (_local, _remote, options: UploadOptions) => {
-      options?.onBytesTransferred?.(5)
-    })
+    let midTransfer: number[] = []
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      const session = createSession(async (_local, _remote, options: UploadOptions) => {
+        // Why: step past the throttle window so the slice is eligible to be sent at all.
+        vi.setSystemTime(Date.now() + 1000)
+        options?.onBytesTransferred?.(5)
+        // Why: snapshot before the import settles; the settled report must not mask a stuck bar.
+        midTransfer = sender.send.mock.calls.map(([, progress]) => progress.sentBytes)
+      })
 
-    await runImport(
-      '/does/not/exist',
-      session,
-      async (tracked) => {
-        await tracked.uploadFile('/l/a', '/r/a', { exclusive: true })
-        return imported('/does/not/exist', '/r/a', 'file')
-      },
-      { sender }
-    )
+      await runImport(
+        '/does/not/exist',
+        session,
+        async (tracked) => {
+          await tracked.uploadFile('/l/a', '/r/a', { exclusive: true })
+          return imported('/does/not/exist', '/r/a', 'file')
+        },
+        { sender }
+      )
+    } finally {
+      vi.useRealTimers()
+    }
 
-    const sent = sender.send.mock.calls.map(([, progress]) => progress.sentBytes)
-    expect(sent).toContain(5)
+    expect(midTransfer).toEqual([0, 5])
   })
 
   it('undoes exactly what it created when cancelled mid-file', async () => {
