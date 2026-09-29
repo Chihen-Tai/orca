@@ -29,6 +29,9 @@ export const IDENTITY_OUTSTANDING_LIMIT = 64
 // Long enough that a congested but healthy relay does not trip the breaker below.
 export const ROLLBACK_LSTAT_TIMEOUT_MS = 30_000
 
+// Why: the backlog lives on the relay, so the limit is shared by every import on one connection.
+const outstandingIdentityRequests = new WeakMap<IFilesystemProvider, { count: number }>()
+
 function expireAfter(ms: number): { expired: Promise<null>; cancel: () => void } {
   let timer: ReturnType<typeof setTimeout> | undefined
   const expired = new Promise<null>((resolve) => {
@@ -42,7 +45,6 @@ export class SshImportCreatedLedger {
   private readonly removed = new Set<string>()
   private identityReadsInFlight = 0
   private relayStalled = false
-  private identityRequestsOutstanding = 0
   private readonly identityReadQueue: (() => void)[] = []
 
   constructor(
@@ -73,14 +75,16 @@ export class SshImportCreatedLedger {
   ): Promise<FileStat | null> {
     const { expired, cancel } = expireAfter(IDENTITY_READ_DEADLINE_MS)
     const read = this.withIdentityReadSlot(async () => {
-      if (late() || this.identityRequestsOutstanding >= IDENTITY_OUTSTANDING_LIMIT) {
+      const outstanding = outstandingIdentityRequests.get(this.provider) ?? { count: 0 }
+      if (late() || outstanding.count >= IDENTITY_OUTSTANDING_LIMIT) {
         return null
       }
-      this.identityRequestsOutstanding += 1
+      outstanding.count += 1
+      outstandingIdentityRequests.set(this.provider, outstanding)
       try {
         return await lstat(path)
       } finally {
-        this.identityRequestsOutstanding -= 1
+        outstanding.count -= 1
       }
     }, expired)
       .then((stat) => (late() ? null : stat))

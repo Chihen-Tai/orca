@@ -241,9 +241,13 @@ describe('SshImportCreatedLedger identity reads', () => {
           ? new Promise<FileStat>(() => {})
           : Promise.resolve({ size: 0, type: 'file', mtime: 0, dev: 1, ino: path.length })
       )
-      const ledger = new SshImportCreatedLedger(provider, session)
+      // Why: two imports on one connection share the relay, so they share the limit.
+      const ledgers = [
+        new SshImportCreatedLedger(provider, session),
+        new SshImportCreatedLedger(provider, session)
+      ]
       for (let index = 0; index < IDENTITY_OUTSTANDING_LIMIT; index += 1) {
-        ledger.record(`/r/stalled${index}`, 'file', 0)
+        ledgers[index % 2]?.record(`/r/stalled${index}`, 'file', 0)
         // Why: past each deadline the slots free, so the next batch is sent while these stay pending.
         if (index % 16 === 15) {
           await vi.advanceTimersByTimeAsync(IDENTITY_READ_DEADLINE_MS + 1)
@@ -251,7 +255,7 @@ describe('SshImportCreatedLedger identity reads', () => {
       }
       expect(provider.lstat).toHaveBeenCalledTimes(IDENTITY_OUTSTANDING_LIMIT)
 
-      const next = ledger.record('/r/next', 'file', 0)
+      const next = new SshImportCreatedLedger(provider, session).record('/r/next', 'file', 0)
       await vi.advanceTimersByTimeAsync(0)
       await expect(next.identity).resolves.toBeNull()
       expect(provider.lstat).toHaveBeenCalledTimes(IDENTITY_OUTSTANDING_LIMIT)
