@@ -128,11 +128,12 @@ export async function importExternalPathsToRuntime(
   const unsubscribeProgress = handlers
     ? window.api.fs.onUploadProgress((event) => {
         // Why: a concurrent drop in another pane shares this channel.
-        trackers.get(event.uploadId)?.reportFileProgress(event.sentBytes)
+        trackers.get(event.uploadId)?.reportFileProgress(event.sentBytes, event.fileSequence)
       })
     : null
   const results: ImportItemResult[] = []
   const reservedNames = new Set<string>()
+  let nextFileSequence = 0
 
   try {
     await ensureRuntimeDirectory(context, destinationDir, importSession)
@@ -171,8 +172,9 @@ export async function importExternalPathsToRuntime(
             }
             continue
           }
+          const fileSequence = sourceUploadId ? nextFileSequence++ : undefined
           if (sourceUploadId) {
-            trackers.get(sourceUploadId)?.beginFile()
+            trackers.get(sourceUploadId)?.beginFile(fileSequence)
           }
           await uploadRuntimeFileWithoutClobber(
             importSession,
@@ -194,7 +196,8 @@ export async function importExternalPathsToRuntime(
               (context.expectedSshTargetId
                 ? `ssh:${encodeURIComponent(context.expectedSshTargetId)}`
                 : 'local'),
-            sourceUploadId
+            sourceUploadId,
+            fileSequence
           )
           if (sourceUploadId) {
             trackers.get(sourceUploadId)?.completeFile(entry.byteLength)

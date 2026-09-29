@@ -5,6 +5,7 @@ export type RuntimeUploadProgress = {
   uploadId: string
   sentBytes: number
   totalBytes: number
+  fileSequence?: number
 }
 
 export type RuntimeUploadProgressSink = (progress: RuntimeUploadProgress) => void

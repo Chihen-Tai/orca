@@ -180,11 +180,21 @@ export const fsApi = {
     args: RuntimeUploadFileStreamRequest
   ): Promise<{ byteLength: number }> => ipcRenderer.invoke('fs:uploadExternalFileToRuntime', args),
   onUploadProgress: (
-    callback: (progress: { uploadId: string; sentBytes: number; totalBytes: number }) => void
+    callback: (progress: {
+      uploadId: string
+      sentBytes: number
+      totalBytes: number
+      fileSequence?: number
+    }) => void
   ): (() => void) => {
     const listener = (
       _event: Electron.IpcRendererEvent,
-      data: { uploadId: string; sentBytes: number; totalBytes: number }
+      data: {
+        uploadId: string
+        sentBytes: number
+        totalBytes: number
+        fileSequence?: number
+      }
     ) => callback(data)
     ipcRenderer.on('fs:uploadProgress', listener)
     return () => ipcRenderer.removeListener('fs:uploadProgress', listener)

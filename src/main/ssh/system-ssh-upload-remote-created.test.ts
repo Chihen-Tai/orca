@@ -80,9 +80,11 @@ describe('system SSH exclusive upload', () => {
   it('reports the create once the remote shell confirms it made the file', async () => {
     const { command, created } = await upload(true)
     // Why: noclobber fails the create before the marker when the file already exists.
-    expect(command).toContain('set -C; : >')
+    expect(command).toContain('set -C; exec 3>')
     expect(command).toContain('ORCA_REMOTE_CREATED')
-    expect(command).toContain('exec cat >>')
+    // Why: writing through the fd opened by the create never reopens a swappable path.
+    expect(command).toContain('exec cat >&3')
+    expect(command).not.toContain('cat >>')
     expect(created).toBe(true)
   })
 

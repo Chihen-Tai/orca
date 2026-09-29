@@ -263,7 +263,8 @@ export function registerFilesystemMutationHandlers(store: Store): void {
           cancelSignal: cancellation?.signal,
           onProgress:
             emit && uploadId
-              ? ({ sentBytes, totalBytes }) => emit({ uploadId, sentBytes, totalBytes })
+              ? ({ sentBytes, totalBytes }) =>
+                  emit({ uploadId, sentBytes, totalBytes, fileSequence: args.fileSequence })
               : undefined
         })
       } catch (error) {

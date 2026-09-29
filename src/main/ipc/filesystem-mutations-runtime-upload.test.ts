@@ -173,4 +173,30 @@ describe('fs:uploadExternalFileToRuntime', () => {
     await expect(invoke(sender)).rejects.toThrow('sweep exploded')
     expect(listenerCount(sender)).toBe(0)
   })
+
+  it("echoes the file's sequence on its progress so the renderer can drop a stale event", async () => {
+    const sender = Object.assign(fakeSender(), {
+      id: 1,
+      isDestroyed: () => false,
+      send: vi.fn()
+    })
+    streamMock.mockImplementation(
+      async (args: { onProgress?: (p: { sentBytes: number; totalBytes: number }) => void }) => {
+        args.onProgress?.({ sentBytes: 1, totalBytes: 1 })
+        return { byteLength: 1 }
+      }
+    )
+
+    await handlers.get('fs:uploadExternalFileToRuntime')!(
+      { sender },
+      { ...request, uploadId: 'u1', fileSequence: 4 }
+    )
+
+    expect(sender.send).toHaveBeenCalledWith('fs:uploadProgress', {
+      uploadId: 'u1',
+      sentBytes: 1,
+      totalBytes: 1,
+      fileSequence: 4
+    })
+  })
 })

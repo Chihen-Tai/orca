@@ -274,12 +274,13 @@ function makePosixWriteFileCommand(
 }
 
 /**
- * Creates the file under noclobber before any byte moves and reports that on stdout, so a
- * cancelled upload knows the partial file is its own; an existing file fails the create silently.
+ * Opens the file once under noclobber as fd 3, reports that on stdout, then streams into that fd.
+ * One open means a path swapped for a symlink mid-upload is never reopened; an existing file
+ * fails the create before the marker, so a cancel can tell its own partial file apart.
  */
 function makePosixExclusiveCreateThenAppendCommand(remotePath: string): string {
   const path = shellEscape(remotePath)
-  return `set -C; : > ${path} && printf '%s\\n' ${REMOTE_CREATED_MARKER} && exec cat >> ${path}`
+  return `set -C; exec 3> ${path} && printf '%s\\n' ${REMOTE_CREATED_MARKER} && exec cat >&3`
 }
 
 function makeWindowsReadFileCommand(remotePath: string): string {

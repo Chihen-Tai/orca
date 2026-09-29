@@ -114,6 +114,21 @@ describe('createRuntimeUploadProgressTracker', () => {
     expect(seen).toEqual([])
   })
 
+  it('ignores a late event from the previous file once the next file has begun', () => {
+    const seen: number[] = []
+    const tracker = createRuntimeUploadProgressTracker(100, (p) => seen.push(p.sentBytes))
+
+    tracker.beginFile(0)
+    tracker.reportFileProgress(30, 0)
+    tracker.completeFile(40)
+    tracker.beginFile(1)
+    // Why: file 0's final event arrives after file 1 opened its window.
+    tracker.reportFileProgress(40, 0)
+    tracker.reportFileProgress(10, 1)
+
+    expect(seen).toEqual([30, 40, 50])
+  })
+
   it('emits nothing until bytes move', () => {
     const seen: number[] = []
     createRuntimeUploadProgressTracker(100, (p) => seen.push(p.sentBytes))
