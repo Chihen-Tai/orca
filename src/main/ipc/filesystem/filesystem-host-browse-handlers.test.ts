@@ -151,4 +151,12 @@ describe('host browse handlers', () => {
     // Why: workspace files are reached through allowed roots; no external grant is added.
     expect(isPathAllowed(outsideLink, store)).toBe(false)
   })
+
+  it('rejects null-byte SSH paths before they reach the relay', async () => {
+    const provider = { realpath: vi.fn(), stat: vi.fn() }
+    requireSshFilesystemProviderMock.mockReturnValue(provider)
+
+    await expect(resolveHostBrowseEntry('/home/allen\0x', 'ssh-1')).rejects.toThrow(/null bytes/)
+    expect(provider.realpath).not.toHaveBeenCalled()
+  })
 })

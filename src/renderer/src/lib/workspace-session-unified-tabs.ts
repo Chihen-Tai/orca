@@ -59,7 +59,11 @@ function buildPersistedGroupsForWorktree(tabs: Tab[], groups: TabGroup[]): TabGr
 export function buildPersistedUnifiedTabSessionData(
   snapshot: Pick<
     WorkspaceSessionSnapshot,
-    'activeGroupIdByWorktree' | 'groupsByWorktree' | 'layoutByWorktree' | 'unifiedTabsByWorktree'
+    | 'activeGroupIdByWorktree'
+    | 'groupsByWorktree'
+    | 'layoutByWorktree'
+    | 'unifiedTabsByWorktree'
+    | 'openFiles'
   >
 ): PersistedUnifiedTabSessionData {
   const unifiedTabs: WorkspaceSessionState['unifiedTabs'] = {}
@@ -70,6 +74,11 @@ export function buildPersistedUnifiedTabSessionData(
   const sourceGroups = snapshot.groupsByWorktree ?? {}
   const sourceLayouts = snapshot.layoutByWorktree ?? {}
   const sourceActiveGroups = snapshot.activeGroupIdByWorktree ?? {}
+  // Why: Host-mode files are not persisted, and hydration keeps editor chrome with no
+  // backing file, so their tabs must not be written either.
+  const sessionOnlyEditorIds = new Set(
+    (snapshot.openFiles ?? []).filter((file) => file.hostBrowse === true).map((file) => file.id)
+  )
   const worktreeIds = new Set([
     ...Object.keys(sourceTabs),
     ...Object.keys(sourceGroups),
@@ -77,7 +86,9 @@ export function buildPersistedUnifiedTabSessionData(
   ])
 
   for (const worktreeId of worktreeIds) {
-    const tabs = sourceTabs[worktreeId] ?? []
+    const tabs = (sourceTabs[worktreeId] ?? []).filter(
+      (tab) => !(tab.contentType === 'editor' && sessionOnlyEditorIds.has(tab.entityId))
+    )
     if (tabs.length === 0) {
       continue
     }
