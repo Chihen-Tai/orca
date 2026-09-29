@@ -103,4 +103,41 @@ describe('FileExplorerHostList', () => {
       'opacity-60'
     )
   })
+
+  it('starts a new folder or filter at the top but keeps the place on revalidation', async () => {
+    const at = (
+      path: string,
+      entries: DirEntry[],
+      filterQuery = '',
+      error: string | null = null
+    ) => {
+      const mode = hostMode(entries, {
+        listing: { resolvedPath: path, entries, pathFlavor: 'posix' as const },
+        error
+      })
+      return { ...mode, filterQuery }
+    }
+    const scroller = () => container.querySelector<HTMLElement>('[data-file-explorer-host-list]')
+    const scrollTo = (top: number) => {
+      const el = scroller()
+      if (el) {
+        el.scrollTop = top
+      }
+    }
+
+    await render(at('/home/allen', [codes, documents]))
+    scrollTo(500)
+    await render(at('/home/allen', [codes, documents, bashrc]))
+    expect(scroller()?.scrollTop).toBe(500)
+
+    await render(at('/home/allen', [codes, documents, bashrc]))
+    expect(scroller()?.scrollTop).toBe(500)
+
+    await render(at('/home/allen/Documents', [bashrc]))
+    expect(scroller()?.scrollTop).toBe(0)
+
+    scrollTo(500)
+    await render(at('/home/allen/Documents', [bashrc], 'bash'))
+    expect(scroller()?.scrollTop).toBe(0)
+  })
 })
