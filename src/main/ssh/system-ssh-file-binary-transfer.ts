@@ -41,8 +41,11 @@ type SystemSshWriteBufferOptions = SystemSshOperationOptions & {
 
 type SystemSshUploadFileOptions = SystemSshOperationOptions & {
   exclusive?: boolean
+  onRemoteCreated?: () => void
   onBytesTransferred?: (bytes: number) => void
 }
+
+const REMOTE_CREATED_MARKER = 'ORCA_REMOTE_CREATED'
 
 export async function downloadFileViaSystemSsh(
   target: SshTarget,
@@ -164,11 +167,25 @@ export async function uploadFileViaSystemSsh(
       return
     }
 
+    const onRemoteCreated = options?.exclusive ? options.onRemoteCreated : undefined
     const channel = spawnSystemSshCommand(
       target,
-      makePosixWriteFileCommand(remotePath, options),
+      onRemoteCreated
+        ? makePosixExclusiveCreateThenAppendCommand(remotePath)
+        : makePosixWriteFileCommand(remotePath, options),
       getSystemSshBuildArgsFromOperationOptions(options)
     )
+    if (onRemoteCreated) {
+      let stdout = ''
+      const onStdout = (chunk: Buffer | string): void => {
+        stdout += chunk.toString()
+        if (stdout.includes(REMOTE_CREATED_MARKER)) {
+          channel.off('data', onStdout)
+          onRemoteCreated()
+        }
+      }
+      channel.on('data', onStdout)
+    }
     const input = handle.createReadStream({ autoClose: false })
     const onBytesTransferred = options?.onBytesTransferred
     if (onBytesTransferred) {
@@ -254,6 +271,15 @@ function makePosixWriteFileCommand(
   const redirection = options?.append ? '>>' : '>'
   const noclobber = !options?.append && options?.exclusive ? 'set -C; ' : ''
   return `${noclobber}cat ${redirection} ${shellEscape(remotePath)}`
+}
+
+/**
+ * Creates the file under noclobber before any byte moves and reports that on stdout, so a
+ * cancelled upload knows the partial file is its own; an existing file fails the create silently.
+ */
+function makePosixExclusiveCreateThenAppendCommand(remotePath: string): string {
+  const path = shellEscape(remotePath)
+  return `set -C; : > ${path} && printf '%s\\n' ${REMOTE_CREATED_MARKER} && exec cat >> ${path}`
 }
 
 function makeWindowsReadFileCommand(remotePath: string): string {

@@ -605,6 +605,7 @@ export class SshConnection {
             signal: linkedSignal.signal,
             hostPlatform: options?.hostPlatform,
             exclusive: uploadOptions?.exclusive,
+            onRemoteCreated: uploadOptions?.onRemoteCreated,
             onBytesTransferred: uploadOptions?.onBytesTransferred,
             ...buildArgsOptions
           })
