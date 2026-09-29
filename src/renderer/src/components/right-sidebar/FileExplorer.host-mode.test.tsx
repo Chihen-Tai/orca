@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const h = vi.hoisted(() => ({
   hostActive: false,
+  setHostActive: (_active: boolean) => {},
   treeMounts: 0,
   treeUnmounts: 0,
   enter: () => {},
@@ -123,15 +124,22 @@ vi.mock('./use-file-explorer-background-menu', () => ({
 vi.mock('./use-file-explorer-scope-transition', () => ({
   useFileExplorerScopeTransition: () => {}
 }))
-vi.mock('./use-file-explorer-host-mode', () => ({
-  useFileExplorerHostMode: () => ({
-    active: h.hostActive,
-    filterQuery: '',
-    setFilterQuery: vi.fn(),
-    browser: {},
-    toolbar: { active: h.hostActive, unavailableLabel: null, onToggle: vi.fn() }
-  })
-}))
+vi.mock('./use-file-explorer-host-mode', async () => {
+  const { useState } = await import('react')
+  return {
+    useFileExplorerHostMode: () => {
+      const [active, setActive] = useState(h.hostActive)
+      h.setHostActive = setActive
+      return {
+        active,
+        filterQuery: '',
+        setFilterQuery: vi.fn(),
+        browser: {},
+        toolbar: { active, unavailableLabel: null, onToggle: vi.fn() }
+      }
+    }
+  }
+})
 
 import FileExplorer from './FileExplorer'
 
@@ -177,8 +185,8 @@ describe('FileExplorer Host mode', () => {
     expect(container.querySelector('[data-testid="host-list"]')).toBeNull()
 
     for (const active of [true, false, true, false]) {
-      h.hostActive = active
-      await render()
+      await act(async () => h.setHostActive(active))
+      expect(container.querySelector('[data-testid="host-list"]') !== null).toBe(active)
     }
 
     expect(h.treeMounts).toBe(1)
