@@ -75,7 +75,9 @@ export function buildPersistedUnifiedTabSessionData(
   const sourceLayouts = snapshot.layoutByWorktree ?? {}
   const sourceActiveGroups = snapshot.activeGroupIdByWorktree ?? {}
   // Why: Host-mode files are not persisted, and hydration keeps editor chrome with no
-  // backing file, so their tabs must not be written either.
+  // backing file, so their tabs must not be written either. Incremental patches rely on
+  // `hostBrowse` only ever clearing alongside a tab-state change; a path that sets it on
+  // an existing tab must also re-trigger this rebuild.
   const sessionOnlyEditorIds = new Set(
     (snapshot.openFiles ?? []).filter((file) => file.hostBrowse === true).map((file) => file.id)
   )
