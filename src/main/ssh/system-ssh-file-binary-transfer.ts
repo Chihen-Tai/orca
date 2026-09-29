@@ -164,6 +164,11 @@ export async function uploadFileViaSystemSsh(
         withLocalFile: (send) => send(localPath)
       }
       await writeWindowsRemoteFile(target, remotePath, source, options ?? {})
+      // Why: an exclusive publish is a Move that fails if the name exists, so a completed one
+      // proves the file is ours; a cancel landing before the import settles may then undo it.
+      if (options?.exclusive) {
+        options.onRemoteCreated?.()
+      }
       return
     }
 

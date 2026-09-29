@@ -219,6 +219,19 @@ describe('Windows upload over sftp', () => {
     expect(sftpBatches).toHaveLength(1)
   })
 
+  it('reports an exclusive upload as ours only once its no-clobber publish succeeded', async () => {
+    writeFileSync(join(localDir, 'notes.txt'), 'x')
+    const onRemoteCreated = vi.fn()
+
+    await uploadFileViaSystemSsh(target, join(localDir, 'notes.txt'), `${remoteRoot}/notes.txt`, {
+      hostPlatform,
+      exclusive: true,
+      onRemoteCreated
+    })
+
+    expect(onRemoteCreated).toHaveBeenCalledTimes(1)
+  })
+
   it('creates the parent chain and sends the payload in one round trip', async () => {
     writeFileSync(join(localDir, 'relay.js'), 'x')
 
