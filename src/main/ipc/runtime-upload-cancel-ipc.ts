@@ -6,8 +6,11 @@ import {
   scopeRuntimeUploadId
 } from './runtime-upload-cancellation'
 import { parseTransferId } from './transfer-id'
+import { abortWhenRendererGone } from './renderer-lifetime-abort'
 
-const sendersWithCleanup = new WeakSet<Pick<WebContents, 'once'>>()
+type CancelSender = Pick<WebContents, 'id' | 'once' | 'removeListener'>
+
+const sendersWithCleanup = new WeakSet<CancelSender>()
 
 function readUploadId(args: unknown): string | undefined {
   return args && typeof args === 'object' && 'uploadId' in args
@@ -15,13 +18,27 @@ function readUploadId(args: unknown): string | undefined {
     : undefined
 }
 
-function forgetCancelsWhenSenderCloses(sender: Pick<WebContents, 'id' | 'once'>): void {
+/**
+ * A renderer that reloads or crashes can never release its drops, and it keeps the same
+ * WebContents, so `destroyed` alone would strand its remembered cancels until the window closes.
+ */
+function forgetCancelsWhenRendererGoes(sender: CancelSender): void {
   if (typeof sender.once !== 'function' || sendersWithCleanup.has(sender)) {
     return
   }
   sendersWithCleanup.add(sender)
   const senderId = sender.id
-  sender.once('destroyed', () => forgetRuntimeUploadCancellationsForSender(senderId))
+  const lifetime = abortWhenRendererGone(sender)
+  lifetime.signal.addEventListener(
+    'abort',
+    () => {
+      lifetime.dispose()
+      forgetRuntimeUploadCancellationsForSender(senderId)
+      // Why: a reloaded renderer reuses this WebContents; its next cancel re-arms cleanup.
+      sendersWithCleanup.delete(sender)
+    },
+    { once: true }
+  )
 }
 
 export function registerRuntimeUploadCancelHandlers(): void {
@@ -30,7 +47,7 @@ export function registerRuntimeUploadCancelHandlers(): void {
   ipcMain.handle('fs:cancelRuntimeUpload', (event, args: unknown): void => {
     const uploadId = readUploadId(args)
     if (uploadId) {
-      forgetCancelsWhenSenderCloses(event.sender)
+      forgetCancelsWhenRendererGoes(event.sender)
       cancelRuntimeUpload(scopeRuntimeUploadId(event.sender.id, uploadId))
     }
   })

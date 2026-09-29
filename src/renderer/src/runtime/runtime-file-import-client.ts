@@ -23,10 +23,10 @@ import {
 import { getActiveRuntimeTarget } from './runtime-rpc-client'
 import { toRuntimeWorktreeSelector } from './runtime-worktree-selector'
 import { runSshUploadWithProgress } from './ssh-upload-progress-client'
-import { isUploadCancelledWithLeftovers } from '../../../shared/ssh-import-cancel-reason'
+import { hasUploadLeftovers } from '../../../shared/ssh-import-cancel-reason'
 
 function leftoverDetail(result: ImportItemResult | undefined): string | undefined {
-  return result?.status === 'failed' && isUploadCancelledWithLeftovers(result.reason)
+  return result?.status === 'failed' && hasUploadLeftovers(result.reason)
     ? result.reason
     : undefined
 }
@@ -244,8 +244,8 @@ export async function importExternalPathsToRuntime(
           status: 'failed',
           reason: error instanceof Error ? error.message : String(error)
         })
-        // Why: reported as failed even for a cancel — the store keeps the row's
-        // already-set 'cancelled' state, so the user's own action is not relabelled.
+        // Why: reported as failed even for a cancel; the upload panel maps a failed source the
+        // user cancelled to 'cancelled', so the user's own action is not relabelled.
         if (sourceUploadId) {
           handlers?.onRowSettled(sourceUploadId, 'failed')
         }

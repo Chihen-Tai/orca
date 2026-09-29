@@ -347,4 +347,29 @@ describe('SSH import progress', () => {
     expect(session.removeCreatedEntry).not.toHaveBeenCalled()
     forgetRuntimeUploadCancellation(scopeRuntimeUploadId(SENDER_ID + 1, 'u1'))
   })
+
+  it('reports leftovers after a failure that was not a cancel', async () => {
+    const source = await createSource()
+    const session = createSession(async (_local, _remote, options: UploadOptions) => {
+      options?.onRemoteCreated?.()
+      throw new Error('Remote connection dropped')
+    })
+    session.removeCreatedEntry.mockRejectedValue(new Error('channel closed'))
+
+    const { result } = await runImport(source, session, async (tracked, provider) => {
+      await provider.createDirNoClobber('/r/src')
+      try {
+        await tracked.uploadFile('/l/a', '/r/src/a', { exclusive: true })
+      } catch {
+        await provider.deletePath('/r/src', true)
+      }
+      return { sourcePath: source, status: 'failed', reason: 'Remote connection dropped' }
+    })
+
+    expect(result).toEqual({
+      sourcePath: source,
+      status: 'failed',
+      reason: 'Remote connection dropped; 2 partial items left under /r/src'
+    })
+  })
 })

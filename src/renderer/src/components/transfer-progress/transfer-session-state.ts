@@ -21,7 +21,7 @@ export type TransferRow = {
   totalBytes: number
   status: TransferRowStatus
   kind?: 'file' | 'directory'
-  /** What a cancel could not undo on the host (full reason, shown as the row's tooltip). */
+  /** What a rollback could not undo on the host (full reason, shown as the row's tooltip). */
   detail?: string
 }
 
@@ -146,6 +146,9 @@ export function summarizeTransferSession(session: TransferSession): {
   let doneCount = 0
   let cancelledCount = 0
   let unknownTotal = false
+  // Why: bytes of a row with no total have no denominator; counting them in the
+  // percentage would let a finished unknown-size row push the header to 100% early.
+  let knownSentBytes = 0
   for (const row of session.rows) {
     if (row.status === 'done') {
       doneCount += 1
@@ -160,6 +163,7 @@ export function summarizeTransferSession(session: TransferSession): {
     }
     // Why: a row without a total still moved bytes; count them rather than zeroing the row.
     sentBytes += row.totalBytes > 0 ? Math.min(row.sentBytes, row.totalBytes) : row.sentBytes
+    knownSentBytes += row.totalBytes > 0 ? Math.min(row.sentBytes, row.totalBytes) : 0
     totalBytes += row.totalBytes
     if (row.status === 'active' || row.status === 'cancelling' || row.status === 'unconfirmed') {
       activeCount += 1
@@ -172,7 +176,7 @@ export function summarizeTransferSession(session: TransferSession): {
     percent:
       unknownTotal || totalBytes <= 0
         ? null
-        : Math.min(100, Math.floor((sentBytes / totalBytes) * 100)),
+        : Math.min(100, Math.floor((knownSentBytes / totalBytes) * 100)),
     activeCount,
     doneCount,
     cancelledCount

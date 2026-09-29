@@ -15,7 +15,7 @@ import { pasteResolvedDropPaths } from './terminal-drop-paste'
 import { uploadRuntimeDropPaths } from './terminal-runtime-drop-upload'
 import { createUploadProgressPanel } from '@/components/transfer-progress/upload-progress-panel'
 import { runSshUploadWithProgress } from '@/runtime/ssh-upload-progress-client'
-import { isUploadCancelledWithLeftovers } from '../../../../shared/ssh-import-cancel-reason'
+import { hasUploadLeftovers } from '../../../../shared/ssh-import-cancel-reason'
 import { captureTerminalDropTarget } from './terminal-drop-target'
 import { resolveTerminalDropTargetShell } from './terminal-drop-shell'
 import { resolveNativeTerminalDropPane } from './terminal-drop-pane-resolution'
@@ -202,7 +202,7 @@ async function uploadRemoteDropPaths(
         return failure || skipped
           ? {
               status: 'failed',
-              detail: isUploadCancelledWithLeftovers(failure?.reason) ? failure?.reason : undefined
+              detail: hasUploadLeftovers(failure?.reason) ? failure?.reason : undefined
             }
           : { status: 'done' }
       }

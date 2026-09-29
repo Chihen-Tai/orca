@@ -203,6 +203,21 @@ describe('summarizeTransferSession', () => {
     expect(summary.percent).toBeNull()
   })
 
+  it('does not let a finished unknown-size row push the header to 100% early', () => {
+    const summary = summarizeTransferSession({
+      sessionId: 's',
+      direction: 'upload',
+      settled: false,
+      collapsed: false,
+      rows: [
+        row({ transferId: 'a', sentBytes: 100, totalBytes: 0, status: 'done' }),
+        row({ transferId: 'b', sentBytes: 0, totalBytes: 100 })
+      ]
+    })
+
+    expect(summary.percent).toBe(0)
+  })
+
   it('lets a cancelling row still move and still take the outcome its result reports', () => {
     startTransferSession('s', 'download', [row({ status: 'cancelling' })])
 

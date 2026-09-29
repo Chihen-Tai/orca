@@ -204,7 +204,9 @@ function rowSubLabel(row: TransferRow): string {
       : translate('transferProgress.cancelled', 'Cancelled')
   }
   if (row.status === 'failed') {
-    return translate('transferProgress.failed', 'Failed')
+    return row.detail
+      ? translate('transferProgress.failedPartial', 'Failed; partial upload left on host')
+      : translate('transferProgress.failed', 'Failed')
   }
   return formatTransferredOfTotal(row.sentBytes, row.totalBytes)
 }

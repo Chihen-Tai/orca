@@ -9,6 +9,7 @@ import {
   type RuntimeUploadProgress
 } from './runtime-upload-progress'
 import { registerCancellableUpload, scopeRuntimeUploadId } from './runtime-upload-cancellation'
+import { withUploadLeftovers } from '../../shared/ssh-import-cancel-reason'
 import {
   SshImportCreatedLedger,
   createLedgerTrackedProvider,
@@ -181,6 +182,10 @@ export async function importSshSourceWithProgress(
     // Why: covers a cancel after the last byte and an empty folder, which raise nothing.
     await ledger.rollback()
     return { sourcePath, status: 'failed', reason: describeCancelledImport(ledger.remaining) }
+  }
+  if (result.status === 'failed' && ledger.remaining.length > 0) {
+    // Why: a non-cancel failure rolls back through the same ledger; its leftovers get reported too.
+    return { ...result, reason: withUploadLeftovers(result.reason, ledger.remaining) }
   }
   if (result.status === 'imported') {
     // Why: the settled total bypasses the throttle, which may be holding the last slice back.

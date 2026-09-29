@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const { handlers } = vi.hoisted(() => ({
@@ -24,10 +25,11 @@ registerRuntimeUploadCancelHandlers()
 const windowOne = { sender: { id: 1 } }
 
 function closableWindow(id: number) {
-  const listeners: (() => void)[] = []
+  const sender = Object.assign(new EventEmitter(), { id })
   return {
-    sender: { id, once: (_event: string, listener: () => void) => listeners.push(listener) },
-    close: () => listeners.forEach((listener) => listener())
+    sender,
+    close: () => sender.emit('destroyed'),
+    reload: () => sender.emit('did-navigate')
   }
 }
 
@@ -64,5 +66,16 @@ describe('runtime upload cancel IPC', () => {
     window.close()
 
     expect(isUploadCancelled(scopeRuntimeUploadId(3, 'u'))).toBe(false)
+  })
+
+  it("drops a reloaded renderer's cancels and re-arms for the reloaded page", () => {
+    const window = closableWindow(4)
+    handlers.get('fs:cancelRuntimeUpload')!(window, { uploadId: 'a' })
+    window.reload()
+    expect(isUploadCancelled(scopeRuntimeUploadId(4, 'a'))).toBe(false)
+
+    handlers.get('fs:cancelRuntimeUpload')!(window, { uploadId: 'b' })
+    window.reload()
+    expect(isUploadCancelled(scopeRuntimeUploadId(4, 'b'))).toBe(false)
   })
 })
