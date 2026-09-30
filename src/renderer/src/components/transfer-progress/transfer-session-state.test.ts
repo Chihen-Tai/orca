@@ -181,7 +181,8 @@ describe('summarizeTransferSession', () => {
       direction: 'upload',
       settled: true,
       collapsed: false,
-      rows: [row({ sentBytes: 0, totalBytes: 0 })]
+      // Why: a finished row does not mark the total unknown, so only the zero-total guard is left.
+      rows: [row({ sentBytes: 0, totalBytes: 0, status: 'done' })]
     })
 
     expect(summary.percent).toBeNull()

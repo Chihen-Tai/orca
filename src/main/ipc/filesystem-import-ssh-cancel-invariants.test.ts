@@ -52,6 +52,7 @@ class FakeRemote {
   ])
   // Why: lets a test act (cancel, disconnect) at an exact point inside a transfer.
   beforeChunk: (remotePath: string, chunkIndex: number) => Promise<void> | void = () => {}
+  beforeOpen: (remotePath: string) => void = () => {}
   afterUpload: (remotePath: string) => void = () => {}
   // Why: lets a test fail the identity read taken right after a create.
   failNextLstat = new Set<string>()
@@ -143,6 +144,7 @@ class FakeRemote {
     remotePath: string,
     options: UploadOptions
   ): Promise<void> {
+    this.beforeOpen(remotePath)
     const existing = this.entries.get(remotePath)
     if (existing?.kind === 'fifo') {
       // Why: the pre-open existence check refuses it before any open that could block.
@@ -298,7 +300,8 @@ describe('SSH import cancel invariants', () => {
     // Why: another client creates the name after deconfliction but before our exclusive open.
     vi.mocked(provider.stat).mockRejectedValue(errno('ENOENT'))
     remote.entries.set('/remote/notes.txt', { kind: 'file', content: 'theirs', owner: 'other' })
-    cancel('u-lost')
+    // Why: cancelling before the import would stop it before the transport ever opens.
+    remote.beforeOpen = () => cancel('u-lost')
 
     const { results } = await importWithProgress('ssh-a', join(source, 'notes.txt'), 'u-lost')
 
@@ -346,6 +349,19 @@ describe('SSH import cancel invariants', () => {
     expect(remote.entries.get('/remote/big.bin')).toMatchObject({ content: 'aaaa' })
   })
 
+  it('opens nothing on the remote when cancel lands before the upload starts', async () => {
+    const source = await localTree({ 'early.txt': 'data' })
+    registerSshFilesystemProvider('ssh-a', remote.provider('a'))
+    remote.beforeOpen = vi.fn()
+    cancel('u-early')
+
+    const { results } = await importWithProgress('ssh-a', join(source, 'early.txt'), 'u-early')
+
+    expect(results[0]).toMatchObject({ status: 'failed' })
+    expect(remote.beforeOpen).not.toHaveBeenCalled()
+    expect(remote.has('/remote/early.txt')).toBe(false)
+  })
+
   it('never opens or deletes an existing FIFO at the destination', async () => {
     const source = await localTree({ 'pipe.txt': 'data' })
     const provider = remote.provider('a')
@@ -353,7 +369,7 @@ describe('SSH import cancel invariants', () => {
     // Why: the FIFO appears after deconfliction checked the name.
     vi.mocked(provider.stat).mockRejectedValue(errno('ENOENT'))
     remote.entries.set('/remote/pipe.txt', { kind: 'fifo', content: '', owner: 'other' })
-    cancel('u-fifo')
+    remote.beforeOpen = () => cancel('u-fifo')
 
     const { results } = await importWithProgress('ssh-a', join(source, 'pipe.txt'), 'u-fifo')
 
