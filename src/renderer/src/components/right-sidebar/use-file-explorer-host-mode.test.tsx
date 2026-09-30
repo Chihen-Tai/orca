@@ -23,8 +23,10 @@ vi.mock('@/store', () => {
   useAppStore.getState = () => api().getState()
   return { useAppStore }
 })
+const { ownerKind } = vi.hoisted(() => ({ ownerKind: { current: 'local' } }))
 vi.mock('./file-explorer-operation-owner', () => ({
-  getFileExplorerOperationOwnerFromState: () => ({ kind: 'local' })
+  getFileExplorerOperationOwnerFromState: (state: FakeState) =>
+    ownerKind.current === 'local' && state ? { kind: 'local' } : { kind: 'unresolved' }
 }))
 const { visitKeys } = vi.hoisted(() => {
   const visitKeys: (string | null)[] = []
@@ -46,6 +48,7 @@ function Harness({ worktreeId = 'wt-1' }: { worktreeId?: string }): null {
 }
 
 beforeEach(async () => {
+  ownerKind.current = 'local'
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
   mockStore = createStore<FakeState>(() => ({
     sshTargetLabels: new Map(),
@@ -119,5 +122,18 @@ describe('useFileExplorerHostMode', () => {
     expect(firstVisit).not.toBeNull()
     expect(visitKeys.at(-1)).not.toBeNull()
     expect(visitKeys.at(-1)).not.toBe(firstVisit)
+  })
+
+  it('ends Host mode when the host becomes unavailable, even after it returns', async () => {
+    await act(async () => latest.enter())
+    expect(latest.active).toBe(true)
+
+    ownerKind.current = 'unresolved'
+    await act(async () => api().setState({ fileSearchStateByWorktree: {} }))
+    expect(latest.active).toBe(false)
+
+    ownerKind.current = 'local'
+    await act(async () => api().setState({ fileSearchStateByWorktree: {} }))
+    expect(latest.active).toBe(false)
   })
 })

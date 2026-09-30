@@ -52,7 +52,9 @@ export function useFileExplorerHostMode({
     [owner]
   )
   // Why: adjust during render (not in an effect) so a stale visit never paints.
-  if (visit && visit.worktreeId !== activeWorktreeId) {
+  // Why: losing the host (e.g. owner briefly unresolved during reconnect) ends the visit too,
+  // so a stale folder never flashes when it comes back.
+  if (visit && (visit.worktreeId !== activeWorktreeId || !source)) {
     setVisit(null)
     setFilterQuery('')
   }
