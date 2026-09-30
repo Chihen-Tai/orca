@@ -4,12 +4,14 @@ import { extractIpcErrorMessage } from '@/lib/ipc-error'
 import { getLocalProjectExecutionRuntimeContext } from '@/lib/local-preflight-context'
 import { CLIENT_PLATFORM } from '@/lib/new-workspace'
 import type { PaneManager } from '@/lib/pane-manager/pane-manager'
+import { openWorktreeScopedToast } from '@/lib/worktree-scoped-toast'
 import { useAppStore } from '@/store'
 import { translate } from '@/i18n/i18n'
 import { isWindowsAbsolutePathLike } from '../../../../shared/cross-platform-path'
 import { isWslUncPath, parseWslUncPath } from '../../../../shared/wsl-paths'
 import type { PtyTransport } from './pty-transport'
 import { reportTerminalDropUploadSkipsAndFailures } from './terminal-drop-upload-report'
+import { describeDropWorkspaceIfInactive } from './terminal-drop-workspace-label'
 import type { NativeDropFlowArgs } from './terminal-drop-paste'
 import { pasteResolvedDropPaths } from './terminal-drop-paste'
 import { uploadRuntimeDropPaths } from './terminal-runtime-drop-upload'
@@ -143,6 +145,7 @@ async function handleNativeTerminalFileDropWithCapturedOwner(
     pane,
     tabId,
     targetShell,
+    worktreeId,
     worktreePath
   })
 }
@@ -176,15 +179,21 @@ async function pasteLocalDropPaths(
 }
 
 async function uploadRemoteDropPaths(
-  args: NativeDropFlowArgs & { connectionId: string; targetShell: 'posix' | 'windows' }
+  args: NativeDropFlowArgs & {
+    connectionId: string
+    targetShell: 'posix' | 'windows'
+    worktreeId: string
+  }
 ): Promise<void> {
-  const pending = toast.loading(
-    translate(
-      'auto.components.terminal.pane.terminal.drop.handler.29c031b49a',
-      'Uploading {{value0}} file{{value1}} to remote…',
-      { value0: args.dataPaths.length, value1: args.dataPaths.length === 1 ? '' : 's' }
-    )
+  const message = translate(
+    'auto.components.terminal.pane.terminal.drop.handler.29c031b49a',
+    'Uploading {{value0}} file{{value1}} to remote…',
+    { value0: args.dataPaths.length, value1: args.dataPaths.length === 1 ? '' : 's' }
   )
+  const pending = openWorktreeScopedToast({
+    worktreeId: args.worktreeId,
+    show: (id) => (id === undefined ? toast.loading(message) : toast.loading(message, { id }))
+  })
   try {
     const { resolvedPaths, skipped, failed } = await window.api.fs.resolveDroppedPathsForAgent({
       paths: args.dataPaths,
@@ -195,11 +204,17 @@ async function uploadRemoteDropPaths(
       expectedSshConnectionGeneration: args.expectedSshConnectionGeneration
     })
     await pasteResolvedDropPaths({ ...args, paths: resolvedPaths, targetShell: args.targetShell })
-    reportTerminalDropUploadSkipsAndFailures(skipped, failed)
+    reportTerminalDropUploadSkipsAndFailures(
+      skipped,
+      failed,
+      describeDropWorkspaceIfInactive(args.worktreeId, args.worktreePath)
+    )
   } catch (err) {
-    toast.error(extractIpcErrorMessage(err, 'Failed to upload files.'))
+    toast.error(extractIpcErrorMessage(err, 'Failed to upload files.'), {
+      description: describeDropWorkspaceIfInactive(args.worktreeId, args.worktreePath)
+    })
   } finally {
-    toast.dismiss(pending)
+    pending.close()
   }
 }
 

@@ -2,9 +2,11 @@ import { createElement } from 'react'
 import { toast } from 'sonner'
 import { createBrowserUuid } from '@/lib/browser-uuid'
 import { extractIpcErrorMessage } from '@/lib/ipc-error'
+import { openWorktreeScopedToast, type WorktreeScopedToast } from '@/lib/worktree-scoped-toast'
 import { importExternalPathsToRuntime } from '@/runtime/runtime-file-client'
 import {
   endRuntimeUploadSession,
+  getRuntimeUploadSession,
   settleRuntimeUploadSession,
   startRuntimeUploadSession,
   updateRuntimeUploadRow
@@ -13,6 +15,7 @@ import type { useAppStore } from '@/store'
 import { TerminalDropUploadToast } from './TerminalDropUploadToast'
 import type { NativeDropFlowArgs } from './terminal-drop-paste'
 import { pasteResolvedDropPaths } from './terminal-drop-paste'
+import { describeDropWorkspaceIfInactive } from './terminal-drop-workspace-label'
 import { reportTerminalDropUploadSkipsAndFailures } from './terminal-drop-upload-report'
 import {
   getTerminalTargetShellForWorktreePath,
@@ -32,7 +35,11 @@ export async function uploadRuntimeDropPaths(
   const sessionId = createBrowserUuid()
   const cancelledSourcePaths = new Set<string>()
   const sourcePathsByUploadId = new Map<string, string>()
-  let pending: string | number | null = null
+  let panel: WorktreeScopedToast | null = null
+  const closePanel = (): void => {
+    panel?.close()
+    endRuntimeUploadSession(sessionId)
+  }
   const cancelRow = (uploadId: string): void => {
     const sourcePath = sourcePathsByUploadId.get(uploadId)
     if (sourcePath) {
@@ -80,34 +87,46 @@ export async function uploadRuntimeDropPaths(
             // never flashes an empty panel.
             // Why: createElement, not a direct call — the toast body must be its
             // own component or its hooks run outside a component boundary.
-            const renderPanel = (toastId: string | number) =>
+            const renderPanel = () =>
               createElement(TerminalDropUploadToast, {
                 sessionId,
                 onCancel: cancelRow,
-                onDismiss: () => {
-                  toast.dismiss(toastId)
-                  endRuntimeUploadSession(sessionId)
-                },
-                onLayoutChange: () => showPanel()
+                onDismiss: closePanel,
+                onLayoutChange: () => panel?.refresh()
               })
             const panelOptions = { duration: Infinity, dismissible: false, unstyled: true }
-            const showPanel = (): void => {
+            // Why: the upload belongs to the workspace it was dropped into, so its
+            // panel shows only there instead of stacking over every workspace.
+            panel = openWorktreeScopedToast({
+              worktreeId: args.worktreeId,
               // Why: the id key is omitted, not set to undefined. sonner spreads these
               // options over the id it just minted, so an explicit `id: undefined`
               // makes it register the toast under a different id than it returns —
               // and the next re-issue then adds a second panel instead of updating.
-              pending =
-                pending === null
+              show: (id) =>
+                id === undefined
                   ? toast.custom(renderPanel, panelOptions)
-                  : toast.custom(renderPanel, { ...panelOptions, id: pending })
-            }
-            showPanel()
+                  : toast.custom(renderPanel, { ...panelOptions, id }),
+              // Why: hiding unmounts the panel's outcome timer, so a settled drop
+              // would otherwise never end.
+              onHidden: () => {
+                if (getRuntimeUploadSession(sessionId)?.settled) {
+                  closePanel()
+                }
+              }
+            })
           },
           onRowProgress: (uploadId, sentBytes) =>
             updateRuntimeUploadRow(sessionId, uploadId, { sentBytes }),
           onRowSettled: (uploadId, status) =>
             updateRuntimeUploadRow(sessionId, uploadId, { status }),
-          onFinish: () => settleRuntimeUploadSession(sessionId)
+          onFinish: () => {
+            settleRuntimeUploadSession(sessionId)
+            // Why: no "done" replay on return; failures still get their own toast.
+            if (panel && !panel.isShown()) {
+              closePanel()
+            }
+          }
         }
       }
     )
@@ -123,15 +142,15 @@ export async function uploadRuntimeDropPaths(
       // Why: a cancel is the user's own decision, not a failure to report back.
       results
         .filter((result) => result.status === 'failed')
-        .filter((result) => !cancelledSourcePaths.has(result.sourcePath))
+        .filter((result) => !cancelledSourcePaths.has(result.sourcePath)),
+      describeDropWorkspaceIfInactive(args.worktreeId, args.worktreePath)
     )
   } catch (err) {
     // Why: only the error path tears the panel down immediately. On success it
     // owns its own exit, holding long enough to show how the drop ended.
-    endRuntimeUploadSession(sessionId)
-    if (pending !== null) {
-      toast.dismiss(pending)
-    }
-    toast.error(extractIpcErrorMessage(err, 'Failed to upload files.'))
+    closePanel()
+    toast.error(extractIpcErrorMessage(err, 'Failed to upload files.'), {
+      description: describeDropWorkspaceIfInactive(args.worktreeId, args.worktreePath)
+    })
   }
 }

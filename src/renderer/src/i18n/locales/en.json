@@ -3369,7 +3369,8 @@
                   "uploading": "Uploading {{count}} files to runtime",
                   "uploading_one": "Uploading {{count}} file to runtime",
                   "uploading_other": "Uploading {{count}} files to runtime"
-                }
+                },
+                "droppedInto": "Dropped into {{workspace}}"
               }
             }
           },
