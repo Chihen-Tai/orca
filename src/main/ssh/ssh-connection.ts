@@ -616,7 +616,8 @@ export class SshConnection {
           linkedSignal.dispose()
         }
       },
-      // Why: a Windows host has no POSIX rmdir/rm; the ledger then reports the partial instead.
+      // Why: a Windows host has no POSIX rmdir/rm; the ledger keeps folders and deletes
+      // files by path after its identity check.
       ...(options?.hostPlatform && isWindowsRemoteHost(options.hostPlatform)
         ? {}
         : {

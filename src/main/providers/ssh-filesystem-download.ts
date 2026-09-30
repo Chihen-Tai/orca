@@ -84,7 +84,7 @@ function classifySftpEntry(entry: FileEntryWithStats): 'directory' | 'file' {
 
 // Why: a tree with thousands of folders costs one round trip each; past this the
 // download starts without a total rather than sitting at 0 B looking stuck.
-export const REMOTE_TREE_MEASURE_BUDGET_MS = 2000
+const REMOTE_TREE_MEASURE_BUDGET_MS = 2000
 
 /** Size-only pre-walk (one running sum, no file list); null once the time budget runs out. */
 async function measureRemoteTree(

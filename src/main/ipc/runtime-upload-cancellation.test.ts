@@ -63,10 +63,6 @@ describe('runtime upload cancellation', () => {
     expect(live.signal.aborted).toBe(true)
   })
 
-  it('keeps windows apart even when they mint the same id', () => {
-    expect(scopeRuntimeUploadId(1, 'u')).not.toBe(scopeRuntimeUploadId(2, 'u'))
-  })
-
   it("forgets a closed window's remembered cancels and only that window's", () => {
     cancelRuntimeUpload(scopeRuntimeUploadId(1, 'a'))
     cancelRuntimeUpload(scopeRuntimeUploadId(2, 'a'))

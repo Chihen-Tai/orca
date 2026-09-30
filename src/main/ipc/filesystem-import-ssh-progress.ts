@@ -9,12 +9,14 @@ import {
   type RuntimeUploadProgress
 } from './runtime-upload-progress'
 import { registerCancellableUpload, scopeRuntimeUploadId } from './runtime-upload-cancellation'
-import { withUploadLeftovers } from '../../shared/ssh-import-cancel-reason'
+import {
+  describeUploadCancelledWithLeftovers as describeCancelledImport,
+  withUploadLeftovers
+} from '../../shared/ssh-import-cancel-reason'
 import {
   type CreatedRemoteEntry,
   SshImportCreatedLedger,
-  createLedgerTrackedProvider,
-  describeCancelledImport
+  createLedgerTrackedProvider
 } from './filesystem-import-ssh-rollback'
 
 export type SshImportProgressTarget = {

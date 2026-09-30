@@ -9,12 +9,6 @@ export type CreatedRemoteEntry = {
   maxBytes: number
 }
 
-/**
- * What one tracked SSH import created, so a cancel can undo exactly that.
- *
- * Why not `rm -rf` of the import root: another client (an agent, an editor) may
- * write into the new folder before the cancel lands, and those files are not ours.
- */
 // Why: a folder of thousands of small files must not park thousands of relay requests at once
 // on the mux the explorer, watchers and terminals share; the rollback awaits them anyway.
 const IDENTITY_LSTAT_CONCURRENCY = 16
@@ -40,6 +34,12 @@ function expireAfter(ms: number): { expired: Promise<null>; cancel: () => void }
   return { expired, cancel: () => clearTimeout(timer) }
 }
 
+/**
+ * What one tracked SSH import created, so a cancel can undo exactly that.
+ *
+ * Why not `rm -rf` of the import root: another client (an agent, an editor) may
+ * write into the new folder before the cancel lands, and those files are not ours.
+ */
 export class SshImportCreatedLedger {
   private readonly created: CreatedRemoteEntry[] = []
   private readonly removed = new Set<string>()
@@ -216,5 +216,3 @@ export function createLedgerTrackedProvider(
     }
   })
 }
-
-export { describeUploadCancelledWithLeftovers as describeCancelledImport } from '../../shared/ssh-import-cancel-reason'
