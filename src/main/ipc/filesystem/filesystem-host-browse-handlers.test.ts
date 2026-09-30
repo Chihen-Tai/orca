@@ -2,12 +2,24 @@ import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { HostDirectoryListing } from '../../../shared/filesystem-entry-types'
 import type { Store } from '../../persistence'
 import { isPathAllowed, resolveAuthorizedPath } from '../filesystem-auth'
-import { browseHostDirectory, resolveHostBrowseEntry } from './filesystem-host-browse-handlers'
+import {
+  registerFilesystemHostBrowseHandlers,
+  resolveHostBrowseEntry
+} from './filesystem-host-browse-handlers'
 
-const { requireSshFilesystemProviderMock } = vi.hoisted(() => ({
-  requireSshFilesystemProviderMock: vi.fn()
+const { requireSshFilesystemProviderMock, handlers } = vi.hoisted(() => ({
+  requireSshFilesystemProviderMock: vi.fn(),
+  handlers: new Map<string, (event: unknown, args: unknown) => unknown>()
+}))
+
+vi.mock('electron', () => ({
+  ipcMain: {
+    handle: (channel: string, handler: (event: unknown, args: unknown) => unknown) =>
+      handlers.set(channel, handler)
+  }
 }))
 
 vi.mock('../../providers/ssh-filesystem-dispatch', () => ({
@@ -37,8 +49,12 @@ describe('host browse handlers', () => {
   })
 
   it('lists a directory outside allowed roots without granting access to it', async () => {
+    registerFilesystemHostBrowseHandlers()
     const outside = join(root, 'outside')
-    const listing = await browseHostDirectory(outside)
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: fs:browseHostDir resolves to a HostDirectoryListing.
+    const listing = (await handlers.get('fs:browseHostDir')?.(null, {
+      dirPath: outside
+    })) as HostDirectoryListing
 
     expect(listing.resolvedPath).toBe(outside)
     expect(listing.entries.map((entry) => entry.name).sort()).toEqual(['nested', 'notes.txt'])

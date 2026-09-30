@@ -15,7 +15,7 @@ import {
 import { openHostFile } from './file-explorer-host-open'
 
 // Why: local listings land in a few ms; a spinner that short reads as a glitch (STYLEGUIDE UX rule 1).
-export const HOST_LOADING_SHOW_DELAY_MS = 200
+const HOST_LOADING_SHOW_DELAY_MS = 200
 
 export type FileExplorerHostBrowser = {
   listing: HostDirectoryListing | null
@@ -39,7 +39,7 @@ type HostBrowserSession = {
 
 /** One browsing session per Host visit; `visitKey` is null outside Host mode. */
 export function useFileExplorerHostBrowser({
-  visitKey,
+  visitKey: sessionKey,
   source,
   worktreeId,
   worktreePath
@@ -49,7 +49,6 @@ export function useFileExplorerHostBrowser({
   worktreeId: string | null
   worktreePath: string | null
 }): FileExplorerHostBrowser {
-  const sessionKey = visitKey
   const [session, setSession] = useState<HostBrowserSession | null>(null)
   const current = session && session.key === sessionKey ? session : null
   // Why: breadcrumb clicks race over SSH exec channels; only the latest request may land.

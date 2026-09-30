@@ -26,7 +26,11 @@ vi.mock('@/store', () => {
 const { ownerKind } = vi.hoisted(() => ({ ownerKind: { current: 'local' } }))
 vi.mock('./file-explorer-operation-owner', () => ({
   getFileExplorerOperationOwnerFromState: (state: FakeState) =>
-    ownerKind.current === 'local' && state ? { kind: 'local' } : { kind: 'unresolved' }
+    !state || ownerKind.current === 'unresolved'
+      ? { kind: 'unresolved' }
+      : ownerKind.current === 'local'
+        ? { kind: 'local' }
+        : { kind: 'ssh', connectionId: ownerKind.current }
 }))
 const { visitKeys } = vi.hoisted(() => {
   const visitKeys: (string | null)[] = []
@@ -133,6 +137,21 @@ describe('useFileExplorerHostMode', () => {
     expect(latest.active).toBe(false)
 
     ownerKind.current = 'local'
+    await act(async () => api().setState({ fileSearchStateByWorktree: {} }))
+    expect(latest.active).toBe(false)
+  })
+
+  it('ends Host mode when the workspace is repointed to another host', async () => {
+    ownerKind.current = 'ssh-1'
+    await act(async () => api().setState({ fileSearchStateByWorktree: {} }))
+    await act(async () => latest.enter())
+    expect(latest.active).toBe(true)
+
+    ownerKind.current = 'ssh-2'
+    await act(async () => api().setState({ fileSearchStateByWorktree: {} }))
+    expect(latest.active).toBe(false)
+
+    ownerKind.current = 'ssh-1'
     await act(async () => api().setState({ fileSearchStateByWorktree: {} }))
     expect(latest.active).toBe(false)
   })

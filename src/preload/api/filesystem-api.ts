@@ -125,7 +125,7 @@ export type FilesystemApi = {
     authorizeExternalPath: (args: { targetPath: string }) => Promise<void>
     /** Desktop-only names listing for the Explorer's Host mode; never widens path grants. */
     browseHostDir?: (args: { dirPath: string }) => Promise<HostDirectoryListing>
-    /** Desktop-only; grants a local read only when the target resolves to a regular file. */
+    /** Desktop-only; grants a session read/write path grant only for a regular file outside the workspace. */
     resolveHostBrowseEntry?: (args: {
       targetPath: string
       connectionId?: string

@@ -10,12 +10,6 @@ import { browseServerDirectory } from '../../runtime/runtime-server-environment-
 import { requireSshFilesystemProvider } from '../../providers/ssh-filesystem-dispatch'
 import { authorizeExternalPath } from '../filesystem-auth'
 
-// Why: names-only listing never touches the external-path allowlist, so browsing
-// outside the workspace grants nothing to later read/write/delete handlers.
-export function browseHostDirectory(dirPath: string): Promise<HostDirectoryListing> {
-  return browseServerDirectory(dirPath)
-}
-
 async function canonicalRelativePath(
   realPath: string,
   workspaceRoot: string | undefined,
@@ -75,10 +69,12 @@ export async function resolveHostBrowseEntry(
 }
 
 export function registerFilesystemHostBrowseHandlers(): void {
+  // Why: names-only listing never touches the external-path allowlist, so browsing
+  // outside the workspace grants nothing to later read/write/delete handlers.
   ipcMain.handle(
     'fs:browseHostDir',
     (_event, args: { dirPath: string }): Promise<HostDirectoryListing> =>
-      browseHostDirectory(args.dirPath)
+      browseServerDirectory(args.dirPath)
   )
   ipcMain.handle(
     'fs:resolveHostBrowseEntry',

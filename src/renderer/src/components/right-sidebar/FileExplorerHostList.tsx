@@ -41,7 +41,8 @@ export function FileExplorerHostList({
   // Why: state, not a ref, so the virtualizer observes the scroller once it attaches.
   const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(null)
   const resolvedPath = browser.listing?.resolvedPath ?? null
-  // Why: a new folder or filter starts at the top; revalidating the same folder keeps the user's place.
+  // Why: a new folder or filter starts at the top; reloading the same folder (refresh, a failed
+  // navigation) keeps the user's place.
   useLayoutEffect(() => {
     if (scrollElement) {
       scrollElement.scrollTop = 0

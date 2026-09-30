@@ -8,7 +8,11 @@ import {
   toSshExecutionHostId
 } from '../../../../shared/execution-host'
 import { getFileExplorerOperationOwnerFromState } from './file-explorer-operation-owner'
-import { getHostBrowseSource } from './file-explorer-host-mode'
+import {
+  getHostBrowseSource,
+  hasDesktopHostBrowseApi,
+  type HostBrowseSource
+} from './file-explorer-host-mode'
 import {
   useFileExplorerHostBrowser,
   type FileExplorerHostBrowser
@@ -25,7 +29,14 @@ export type FileExplorerHostMode = {
   toolbar: { active: boolean; unavailableLabel: string | null; onToggle: () => void }
 }
 
-type HostVisit = { worktreeId: string; entry: number }
+type HostVisit = { worktreeId: string; hostKey: string; entry: number }
+
+function getHostKey(source: HostBrowseSource | null): string | null {
+  if (!source) {
+    return null
+  }
+  return source.kind === 'ssh' ? `ssh:${source.connectionId}` : 'local'
+}
 
 /** Host mode is a session-only visit to one workspace; leaving the workspace ends it. */
 export function useFileExplorerHostMode({
@@ -42,23 +53,18 @@ export function useFileExplorerHostMode({
   const owner = useAppStore(
     useShallow((s) => getFileExplorerOperationOwnerFromState(s, activeWorktreeId))
   )
-  const source = useMemo(
-    () =>
-      getHostBrowseSource(
-        owner,
-        typeof window.api.fs.browseHostDir === 'function' &&
-          typeof window.api.fs.resolveHostBrowseEntry === 'function'
-      ),
-    [owner]
-  )
-  // Why: adjust during render (not in an effect) so a stale visit never paints.
-  // Why: losing the host (e.g. owner briefly unresolved during reconnect) ends the visit too,
-  // so a stale folder never flashes when it comes back.
-  if (visit && (visit.worktreeId !== activeWorktreeId || !source)) {
+  const source = useMemo(() => getHostBrowseSource(owner, hasDesktopHostBrowseApi()), [owner])
+  const hostKey = getHostKey(source)
+  // Why: a visit belongs to one workspace on one host. Leaving the workspace, losing the host
+  // (e.g. owner briefly unresolved during reconnect) or repointing it to another host ends the
+  // visit, so a listing from another machine is never shown or clicked. Adjusted during render,
+  // not in an effect, so a stale visit never paints.
+  if (visit && (visit.worktreeId !== activeWorktreeId || visit.hostKey !== hostKey)) {
     setVisit(null)
     setFilterQuery('')
   }
-  const active = visit !== null && visit.worktreeId === activeWorktreeId && source !== null
+  const active =
+    visit !== null && visit.worktreeId === activeWorktreeId && visit.hostKey === hostKey
 
   const sshTargetLabels = useAppStore((s) => s.sshTargetLabels)
   const hostLabel =
@@ -75,11 +81,11 @@ export function useFileExplorerHostMode({
   })
 
   const enter = useCallback(() => {
-    if (source && activeWorktreeId) {
+    if (hostKey && activeWorktreeId) {
       setFilterQuery('')
-      setVisit({ worktreeId: activeWorktreeId, entry: ++entryCounterRef.current })
+      setVisit({ worktreeId: activeWorktreeId, hostKey, entry: ++entryCounterRef.current })
     }
-  }, [activeWorktreeId, source])
+  }, [activeWorktreeId, hostKey])
   const exit = useCallback(() => {
     setVisit(null)
     setFilterQuery('')

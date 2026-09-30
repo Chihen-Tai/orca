@@ -24,6 +24,13 @@ export function getHostBrowseSource(
   return owner.kind === 'ssh' ? { kind: 'ssh', connectionId: owner.connectionId } : null
 }
 
+export function hasDesktopHostBrowseApi(): boolean {
+  return (
+    typeof window.api.fs.browseHostDir === 'function' &&
+    typeof window.api.fs.resolveHostBrowseEntry === 'function'
+  )
+}
+
 function requireDesktopFs(): Required<
   Pick<Window['api']['fs'], 'browseHostDir' | 'resolveHostBrowseEntry'>
 > {
