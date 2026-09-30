@@ -362,7 +362,7 @@ describe('SSH import cancel invariants', () => {
     expect(remote.has('/remote/early.txt')).toBe(false)
   })
 
-  it('never opens or deletes an existing FIFO at the destination', async () => {
+  it('never deletes an existing FIFO at the destination when cancel lands', async () => {
     const source = await localTree({ 'pipe.txt': 'data' })
     const provider = remote.provider('a')
     registerSshFilesystemProvider('ssh-a', provider)

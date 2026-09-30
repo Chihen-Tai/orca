@@ -78,9 +78,12 @@ describe('createUploadProgressPanel', () => {
     upload.progress.onStart([row])
     openPanel.mock.calls[0][2]('u1')
 
-    // Why: an unhandled rejection only fails the run, not this case, so assert the handler.
-    expect(catchRejection).toHaveBeenCalledWith(expect.any(Function))
-    expect(panel.markCancelling).toHaveBeenCalledWith('u1')
+    // Why: an unhandled rejection only fails the run, not this case, so run the handler here.
+    const onRejected = catchRejection.mock.calls[0]?.[0]
+    expect(() => onRejected(new Error('IPC unavailable'))).not.toThrow()
+    expect(panel.markCancelling).toHaveBeenCalledTimes(1)
+    expect(panel.updateRow).not.toHaveBeenCalled()
+    expect(panel.settle).not.toHaveBeenCalled()
   })
 
   it('ends a cancelled source as cancelled, but one that finished anyway as done', () => {
