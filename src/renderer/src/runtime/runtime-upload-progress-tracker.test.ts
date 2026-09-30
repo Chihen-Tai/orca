@@ -32,12 +32,12 @@ describe('createRuntimeUploadProgressTracker', () => {
     const seen: number[] = []
     const tracker = createRuntimeUploadProgressTracker(300, (p) => seen.push(p.sentBytes))
 
-    tracker.beginFile()
-    tracker.reportFileProgress(50)
-    tracker.reportFileProgress(100)
+    tracker.beginFile(0)
+    tracker.reportFileProgress(50, 0)
+    tracker.reportFileProgress(100, 0)
     tracker.completeFile(100)
-    tracker.beginFile()
-    tracker.reportFileProgress(75)
+    tracker.beginFile(1)
+    tracker.reportFileProgress(75, 1)
 
     expect(seen).toEqual([50, 100, 175])
   })
@@ -46,12 +46,12 @@ describe('createRuntimeUploadProgressTracker', () => {
     const totals: number[] = []
     const tracker = createRuntimeUploadProgressTracker(500, (p) => totals.push(p.totalBytes))
 
-    tracker.beginFile()
-    tracker.reportFileProgress(10)
+    tracker.beginFile(0)
+    tracker.reportFileProgress(10, 0)
     // completeFile does not re-emit: the figure has not moved.
     tracker.completeFile(10)
-    tracker.beginFile()
-    tracker.reportFileProgress(20)
+    tracker.beginFile(1)
+    tracker.reportFileProgress(20, 1)
 
     expect(totals).toEqual([500, 500])
   })
@@ -60,9 +60,9 @@ describe('createRuntimeUploadProgressTracker', () => {
     const seen: number[] = []
     const tracker = createRuntimeUploadProgressTracker(100, (p) => seen.push(p.sentBytes))
 
-    tracker.beginFile()
-    tracker.reportFileProgress(40)
-    tracker.reportFileProgress(40)
+    tracker.beginFile(0)
+    tracker.reportFileProgress(40, 0)
+    tracker.reportFileProgress(40, 0)
     tracker.completeFile(40)
 
     expect(seen).toEqual([40])
@@ -72,8 +72,8 @@ describe('createRuntimeUploadProgressTracker', () => {
     const seen: number[] = []
     const tracker = createRuntimeUploadProgressTracker(100, (p) => seen.push(p.sentBytes))
 
-    tracker.beginFile()
-    tracker.reportFileProgress(250)
+    tracker.beginFile(0)
+    tracker.reportFileProgress(250, 0)
 
     expect(seen).toEqual([100])
   })
@@ -82,9 +82,9 @@ describe('createRuntimeUploadProgressTracker', () => {
     const seen: number[] = []
     const tracker = createRuntimeUploadProgressTracker(30, (p) => seen.push(p.sentBytes))
 
-    for (const size of [10, 10, 10]) {
-      tracker.beginFile()
-      tracker.reportFileProgress(size)
+    for (const [sequence, size] of [10, 10, 10].entries()) {
+      tracker.beginFile(sequence)
+      tracker.reportFileProgress(size, sequence)
       tracker.completeFile(size)
     }
 
@@ -95,21 +95,46 @@ describe('createRuntimeUploadProgressTracker', () => {
     const seen: number[] = []
     const tracker = createRuntimeUploadProgressTracker(100, (p) => seen.push(p.sentBytes))
 
-    tracker.beginFile()
-    tracker.reportFileProgress(40)
+    tracker.beginFile(0)
+    tracker.reportFileProgress(40, 0)
     tracker.completeFile(40)
     // Electron does not order webContents.send against the invoke reply, so the
     // last chunk's event can arrive here; counting it would double the file.
-    tracker.reportFileProgress(40)
+    tracker.reportFileProgress(40, 0)
 
     expect(seen).toEqual([40])
+  })
+
+  it('ignores a late event from the previous file once the next file began', () => {
+    const seen: number[] = []
+    const tracker = createRuntimeUploadProgressTracker(100, (p) => seen.push(p.sentBytes))
+
+    tracker.beginFile(0)
+    tracker.reportFileProgress(40, 0)
+    tracker.completeFile(40)
+    tracker.beginFile(1)
+    // File 0's last event, delivered after file 1 opened the gate.
+    tracker.reportFileProgress(40, 0)
+    tracker.reportFileProgress(5, 1)
+
+    expect(seen).toEqual([40, 45])
+  })
+
+  it('ignores an event that carries no file sequence', () => {
+    const seen: number[] = []
+    const tracker = createRuntimeUploadProgressTracker(100, (p) => seen.push(p.sentBytes))
+
+    tracker.beginFile(0)
+    tracker.reportFileProgress(40, undefined)
+
+    expect(seen).toEqual([])
   })
 
   it('emits nothing before the first file begins', () => {
     const seen: number[] = []
     const tracker = createRuntimeUploadProgressTracker(100, (p) => seen.push(p.sentBytes))
 
-    tracker.reportFileProgress(50)
+    tracker.reportFileProgress(50, 0)
 
     expect(seen).toEqual([])
   })

@@ -10,7 +10,7 @@ import {
   toggleRuntimeUploadCollapsed,
   type RuntimeUploadRow
 } from '@/runtime/runtime-upload-session-state'
-import { formatTransferredOfTotal, toPercent } from './terminal-drop-upload-progress'
+import { formatTransferredOfTotal, toRowPercent } from './terminal-drop-upload-progress'
 import { formatTerminalDropUploadHeading } from './terminal-drop-upload-heading'
 
 // Long enough to read the outcome, short enough not to linger over the terminal.
@@ -135,7 +135,7 @@ function UploadRowItem({
   row: RuntimeUploadRow
   onCancel: (uploadId: string) => void
 }): React.JSX.Element {
-  const percent = toPercent(row.sentBytes, row.totalBytes)
+  const percent = toRowPercent(row)
   const inactive = row.status !== 'uploading'
 
   return (

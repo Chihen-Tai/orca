@@ -21,7 +21,8 @@ export function formatTerminalDropUploadHeading({
       { count: rowCount }
     )
   }
-  if (doneCount === 0 && cancelledCount > 0) {
+  // Why: only an all-cancelled drop reads as cancelled; a failure among the cancels must show.
+  if (doneCount === 0 && cancelledCount > 0 && cancelledCount === rowCount) {
     return translate(
       'auto.components.terminal.pane.terminal.drop.upload.heading.cancelled',
       'Upload cancelled'

@@ -156,7 +156,12 @@ export type FilesystemApi = {
       args: RuntimeUploadFileStreamRequest
     ) => Promise<{ byteLength: number }>
     onUploadProgress: (
-      callback: (progress: { uploadId: string; sentBytes: number; totalBytes: number }) => void
+      callback: (progress: {
+        uploadId: string
+        sentBytes: number
+        totalBytes: number
+        fileSequence?: number
+      }) => void
     ) => () => void
     cancelRuntimeUpload: (args: { uploadId: string }) => Promise<void>
     releaseRuntimeUpload: (args: { uploadId: string }) => Promise<void>

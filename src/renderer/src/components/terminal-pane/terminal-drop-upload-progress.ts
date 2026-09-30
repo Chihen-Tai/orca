@@ -1,3 +1,5 @@
+import type { RuntimeUploadRow } from '@/runtime/runtime-upload-session-state'
+
 const BYTE_UNITS = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'] as const
 
 /** Both figures share the total's unit; scaling each alone renders "900 / 32.5". */
@@ -15,6 +17,13 @@ export function formatTransferredOfTotal(sentBytes: number, totalBytes: number):
   const scaledSent = Math.min(Math.max(sentBytes, 0), totalBytes) / divisor
   const precision = scaledTotal >= 100 || unitIndex === 0 ? 0 : scaledTotal >= 10 ? 1 : 2
   return `${scaledSent.toFixed(precision)} / ${scaledTotal.toFixed(precision)} ${BYTE_UNITS[unitIndex]}`
+}
+
+/** A finished row reads 100% even with no bytes to move (an empty file or folder). */
+export function toRowPercent(
+  row: Pick<RuntimeUploadRow, 'status' | 'sentBytes' | 'totalBytes'>
+): number {
+  return row.status === 'done' ? 100 : toPercent(row.sentBytes, row.totalBytes)
 }
 
 export function toPercent(sentBytes: number, totalBytes: number): number {

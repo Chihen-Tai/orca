@@ -34,6 +34,7 @@ export async function uploadRuntimeDropPaths(
   const destinationDir = joinRuntimeTerminalDropDir(args.worktreePath)
   const sessionId = createBrowserUuid()
   const cancelledSourcePaths = new Set<string>()
+  const cancelledUploadIds = new Set<string>()
   const sourcePathsByUploadId = new Map<string, string>()
   let panel: WorktreeScopedToast | null = null
   const closePanel = (): void => {
@@ -45,6 +46,7 @@ export async function uploadRuntimeDropPaths(
     if (sourcePath) {
       cancelledSourcePaths.add(sourcePath)
     }
+    cancelledUploadIds.add(uploadId)
     updateRuntimeUploadRow(sessionId, uploadId, { status: 'cancelled' })
     void window.api.fs.cancelRuntimeUpload({ uploadId })
   }
@@ -120,6 +122,7 @@ export async function uploadRuntimeDropPaths(
             updateRuntimeUploadRow(sessionId, uploadId, { sentBytes }),
           onRowSettled: (uploadId, status) =>
             updateRuntimeUploadRow(sessionId, uploadId, { status }),
+          isCancelled: (uploadId) => cancelledUploadIds.has(uploadId),
           onFinish: () => {
             settleRuntimeUploadSession(sessionId)
             // Why: no "done" replay on return; failures still get their own toast.

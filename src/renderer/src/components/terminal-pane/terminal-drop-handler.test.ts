@@ -216,7 +216,8 @@ describe('handleTerminalFileDrop', () => {
           onStart: expect.any(Function),
           onRowProgress: expect.any(Function),
           onRowSettled: expect.any(Function),
-          onFinish: expect.any(Function)
+          onFinish: expect.any(Function),
+          isCancelled: expect.any(Function)
         }
       }
     )
@@ -377,7 +378,8 @@ describe('handleTerminalFileDrop', () => {
           onStart: expect.any(Function),
           onRowProgress: expect.any(Function),
           onRowSettled: expect.any(Function),
-          onFinish: expect.any(Function)
+          onFinish: expect.any(Function),
+          isCancelled: expect.any(Function)
         }
       }
     )
@@ -443,7 +445,8 @@ describe('handleTerminalFileDrop', () => {
           onStart: expect.any(Function),
           onRowProgress: expect.any(Function),
           onRowSettled: expect.any(Function),
-          onFinish: expect.any(Function)
+          onFinish: expect.any(Function),
+          isCancelled: expect.any(Function)
         }
       }
     )

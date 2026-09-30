@@ -2,9 +2,9 @@ export type RuntimeUploadProgressReport = { sentBytes: number; totalBytes: numbe
 
 export type RuntimeUploadProgressTracker = {
   /** Opens the window in which progress for the next file is accepted. */
-  beginFile: () => void
-  /** Bytes of the file currently in flight that have reached the runtime. */
-  reportFileProgress: (sentBytes: number) => void
+  beginFile: (fileSequence: number) => void
+  /** Bytes of the file in flight; an event without this file's sequence is dropped. */
+  reportFileProgress: (sentBytes: number, fileSequence: number | undefined) => void
   /** Called once a file is committed, so its bytes move from in-flight to done. */
   completeFile: (byteLength: number) => void
 }
@@ -20,6 +20,9 @@ export function createRuntimeUploadProgressTracker(
   // Electron does not order webContents.send against an invoke reply, so a final
   // progress event can land after completeFile and be counted twice.
   let acceptingProgress = false
+  // Why: a late event from the previous file can also land after the next file's
+  // beginFile; the sequence main echoes back tells the two apart.
+  let currentFileSequence: number | undefined
 
   const emit = (): void => {
     // Why: a source can grow between staging and upload, so the sum of what
@@ -33,12 +36,16 @@ export function createRuntimeUploadProgressTracker(
   }
 
   return {
-    beginFile: () => {
+    beginFile: (fileSequence) => {
       acceptingProgress = true
+      currentFileSequence = fileSequence
       inFlightBytes = 0
     },
-    reportFileProgress: (sentBytes) => {
+    reportFileProgress: (sentBytes, fileSequence) => {
       if (!acceptingProgress) {
+        return
+      }
+      if (fileSequence === undefined || fileSequence !== currentFileSequence) {
         return
       }
       inFlightBytes = sentBytes
@@ -66,6 +73,8 @@ export type RuntimeImportProgressHandlers = {
   onRowProgress: (uploadId: string, sentBytes: number) => void
   onRowSettled: (uploadId: string, status: 'done' | 'failed') => void
   onFinish: () => void
+  /** Lets the import stop a source the user cancelled before it streams any file. */
+  isCancelled?: (uploadId: string) => boolean
 }
 
 /** Bytes one dropped source will move; directory entries contribute nothing. */
