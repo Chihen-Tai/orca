@@ -26,7 +26,10 @@ vi.mock('@/store', () => {
 vi.mock('./file-explorer-operation-owner', () => ({
   getFileExplorerOperationOwnerFromState: () => ({ kind: 'local' })
 }))
-const { visitKeys } = vi.hoisted(() => ({ visitKeys: [] as (string | null)[] }))
+const { visitKeys } = vi.hoisted(() => {
+  const visitKeys: (string | null)[] = []
+  return { visitKeys }
+})
 vi.mock('./use-file-explorer-host-browser', () => ({
   useFileExplorerHostBrowser: ({ visitKey }: { visitKey: string | null }) => {
     visitKeys.push(visitKey)
