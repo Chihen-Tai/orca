@@ -186,6 +186,16 @@ describe('read-only editor tabs (AI Vault View Log)', () => {
         { preview: true, forceContentReload: true, suppressActiveRuntimeFallback: true }
       )
     }
+    const openWritable = (store: StoreApi<AppState>): void => {
+      store.getState().openFile({
+        filePath: HOST_PATH,
+        relativePath: HOST_PATH,
+        worktreeId: 'wt-1',
+        language: 'shell',
+        mode: 'edit',
+        runtimeEnvironmentId: null
+      })
+    }
 
     it('opens a read-only tab that refuses edits', () => {
       const store = createEditorStore()
@@ -202,35 +212,11 @@ describe('read-only editor tabs (AI Vault View Log)', () => {
 
     it('never downgrades an existing writable tab', () => {
       const store = createEditorStore()
-      store.getState().openFile({
-        filePath: HOST_PATH,
-        relativePath: HOST_PATH,
-        worktreeId: 'wt-1',
-        language: 'shell',
-        mode: 'edit',
-        runtimeEnvironmentId: null
-      })
+      openWritable(store)
 
       openHostTab(store)
 
       expect(store.getState().openFiles).toHaveLength(1)
-      expect(store.getState().openFiles[0]?.readOnly).toBeUndefined()
-      expect(store.getState().openFiles[0]?.hostBrowse).toBeUndefined()
-    })
-
-    it('drops the Host marker once another path opens the file writable', () => {
-      const store = createEditorStore()
-      openHostTab(store)
-
-      store.getState().openFile({
-        filePath: HOST_PATH,
-        relativePath: HOST_PATH,
-        worktreeId: 'wt-1',
-        language: 'shell',
-        mode: 'edit',
-        runtimeEnvironmentId: null
-      })
-
       expect(store.getState().openFiles[0]?.readOnly).toBeUndefined()
       expect(store.getState().openFiles[0]?.hostBrowse).toBeUndefined()
     })
@@ -260,34 +246,28 @@ describe('read-only editor tabs (AI Vault View Log)', () => {
       expect(store.getState().openFiles[0]?.hostBrowse).toBeUndefined()
     })
 
-    it('captures owner provenance when a Host tab turns writable', () => {
+    it('drops the Host marker and captures owner provenance once opened writable', () => {
       const store = createEditorStore()
       openHostTab(store)
-      expect(store.getState().openFiles[0]?.operationProvenance).toBeUndefined()
+      expect(
+        store.getState().openFiles[0]?.operationProvenance,
+        'read-only Host tab carries no provenance'
+      ).toBeUndefined()
 
-      store.getState().openFile({
-        filePath: HOST_PATH,
-        relativePath: HOST_PATH,
-        worktreeId: 'wt-1',
-        language: 'shell',
-        mode: 'edit',
-        runtimeEnvironmentId: null
-      })
+      openWritable(store)
 
-      expect(store.getState().openFiles[0]?.readOnly).toBeUndefined()
-      expect(store.getState().openFiles[0]?.operationProvenance).toBeDefined()
+      const tab = store.getState().openFiles[0]
+      expect(tab?.readOnly, 'tab is writable once reopened for edit').toBeUndefined()
+      expect(tab?.hostBrowse, 'Host marker is dropped once opened writable').toBeUndefined()
+      expect(
+        tab?.operationProvenance,
+        'provenance captured on the read-only -> writable transition'
+      ).toBeDefined()
     })
 
     it('keeps restored writable tabs resolving their owner lazily when reopened', () => {
       const store = createEditorStore()
-      store.getState().openFile({
-        filePath: HOST_PATH,
-        relativePath: HOST_PATH,
-        worktreeId: 'wt-1',
-        language: 'shell',
-        mode: 'edit',
-        runtimeEnvironmentId: null
-      })
+      openWritable(store)
       // Why: hydrated tabs carry no provenance; simulate one.
       store.setState({
         openFiles: store
@@ -295,14 +275,7 @@ describe('read-only editor tabs (AI Vault View Log)', () => {
           .openFiles.map((file) => ({ ...file, operationProvenance: undefined }))
       })
 
-      store.getState().openFile({
-        filePath: HOST_PATH,
-        relativePath: HOST_PATH,
-        worktreeId: 'wt-1',
-        language: 'shell',
-        mode: 'edit',
-        runtimeEnvironmentId: null
-      })
+      openWritable(store)
 
       expect(store.getState().openFiles[0]?.operationProvenance).toBeUndefined()
     })

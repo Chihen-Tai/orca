@@ -81,7 +81,6 @@ describe('Explorer Host mode tabs across restart', () => {
     const state = restarted.getState()
 
     const tabs = state.unifiedTabsByWorktree[WORKTREE_ID] ?? []
-    expect(tabs.some((tab) => tab.entityId === hostTab?.entityId)).toBe(false)
     expect(tabs.map((tab) => tab.entityId)).toEqual([WORKSPACE_FILE])
     expect(state.openFiles.map((file) => file.filePath)).toEqual([WORKSPACE_FILE])
     const tabIds = new Set(tabs.map((tab) => tab.id))
@@ -92,27 +91,7 @@ describe('Explorer Host mode tabs across restart', () => {
     expect(state.activeFileIdByWorktree[WORKTREE_ID]).not.toBe(hostTab?.entityId)
   })
 
-  it('persists the tab again once the file is reopened writable', () => {
-    const store = prepareStore()
-    openWorkspaceAndHostFiles(store)
-    store.getState().openFile({
-      filePath: HOST_FILE,
-      relativePath: HOST_FILE,
-      worktreeId: WORKTREE_ID,
-      language: 'shell',
-      mode: 'edit',
-      runtimeEnvironmentId: null
-    })
-
-    const persisted = buildWorkspaceSessionPayload(store.getState())
-
-    expect(persisted.unifiedTabs?.[WORKTREE_ID]?.map((tab) => tab.entityId)).toContain(HOST_FILE)
-    expect(persisted.openFilesByWorktree?.[WORKTREE_ID]?.map((file) => file.filePath)).toContain(
-      HOST_FILE
-    )
-  })
-
-  it('rewrites the tab chrome when a Host tab is reopened writable', () => {
+  it('persists and patches the Host tab chrome once the file is reopened writable', () => {
     const store = prepareStore()
     openWorkspaceAndHostFiles(store)
     const before = store.getState()
@@ -126,13 +105,25 @@ describe('Explorer Host mode tabs across restart', () => {
       runtimeEnvironmentId: null
     })
     const after = store.getState()
+    const persisted = buildWorkspaceSessionPayload(after)
     // Why: mirror the session writer, which patches only the fields whose references changed.
     const changed = SESSION_RELEVANT_FIELDS.filter((field) => before[field] !== after[field])
     const patch = buildWorkspaceSessionPatch(after, changed)
 
-    expect(patch.unifiedTabs?.[WORKTREE_ID]?.map((tab) => tab.entityId)).toEqual([
-      WORKSPACE_FILE,
-      HOST_FILE
-    ])
+    expect(
+      persisted.unifiedTabs?.[WORKTREE_ID]?.map((tab) => tab.entityId),
+      'full payload persists the writable tab'
+    ).toContain(HOST_FILE)
+    expect(
+      persisted.openFilesByWorktree?.[WORKTREE_ID]?.map((file) => file.filePath),
+      'full payload persists the writable file'
+    ).toContain(HOST_FILE)
+    expect(changed, 'tab chrome reference changes so the writer patches it').toContain(
+      'unifiedTabsByWorktree'
+    )
+    expect(
+      patch.unifiedTabs?.[WORKTREE_ID]?.map((tab) => tab.entityId),
+      'incremental patch rewrites the tab chrome'
+    ).toEqual([WORKSPACE_FILE, HOST_FILE])
   })
 })

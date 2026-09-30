@@ -39,17 +39,20 @@ async function flush(): Promise<void> {
 type Props = {
   active: boolean
   visit?: string
-  source: HostBrowseSource | null
-  worktreePath: string
+  source?: HostBrowseSource | null
+  worktreePath?: string
 }
+
+const local: HostBrowseSource = { kind: 'local' }
 
 let root: Root
 let latest: FileExplorerHostBrowser
 
 function Harness(props: Props): null {
-  const { active, visit = '1', ...rest } = props
+  const { active, visit = '1', source = local, worktreePath = '/home/allen/codes' } = props
   latest = useFileExplorerHostBrowser({
-    ...rest,
+    source,
+    worktreePath,
     visitKey: active ? visit : null,
     worktreeId: 'wt-1'
   })
@@ -70,8 +73,6 @@ async function run(action: () => void): Promise<void> {
   })
 }
 
-const local: HostBrowseSource = { kind: 'local' }
-
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
   fetchListingMock.mockReset()
@@ -89,25 +90,15 @@ afterEach(() => {
 
 describe('useFileExplorerHostBrowser', () => {
   it('stays idle in Project mode', async () => {
-    await render({ active: false, source: local, worktreePath: '/home/allen/codes' })
+    await render({ active: false })
 
     expect(fetchListingMock).not.toHaveBeenCalled()
     expect(latest.listing).toBeNull()
     expect(latest.canNavigateUp).toBe(false)
   })
 
-  it('starts at the workspace root and walks up to its parent', async () => {
-    await render({ active: true, source: local, worktreePath: '/home/allen/codes' })
-    expect(latest.listing?.resolvedPath).toBe('/home/allen/codes')
-
-    await run(() => latest.navigateUp())
-
-    expect(latest.listing?.resolvedPath).toBe('/home/allen')
-    expect(fetchListingMock).toHaveBeenLastCalledWith(local, '/home/allen')
-  })
-
   it('navigates to breadcrumb targets and cannot climb above /', async () => {
-    await render({ active: true, source: local, worktreePath: '/home/allen/codes' })
+    await render({ active: true })
 
     await run(() => latest.navigate('/'))
     expect(latest.listing?.resolvedPath).toBe('/')
@@ -119,7 +110,7 @@ describe('useFileExplorerHostBrowser', () => {
   })
 
   it('walks Windows paths up to the drive root, then the drive list', async () => {
-    await render({ active: true, source: local, worktreePath: 'C:\\Users\\allen\\codes' })
+    await render({ active: true, worktreePath: 'C:\\Users\\allen\\codes' })
 
     await run(() => latest.navigateUp())
     expect(latest.listing?.resolvedPath).toBe('C:\\Users\\allen')
@@ -145,21 +136,19 @@ describe('useFileExplorerHostBrowser', () => {
   })
 
   it('ignores a slow listing that a newer navigation superseded', async () => {
-    await render({ active: true, source: local, worktreePath: '/home/allen/codes' })
-    let releaseSlow: (listing: HostDirectoryListing) => void = () => {}
-    fetchListingMock.mockImplementationOnce(
-      () => new Promise<HostDirectoryListing>((resolve) => (releaseSlow = resolve))
-    )
+    await render({ active: true })
+    const slow = Promise.withResolvers<HostDirectoryListing>()
+    fetchListingMock.mockImplementationOnce(() => slow.promise)
 
     await run(() => latest.navigate('/slow'))
     await run(() => latest.navigate('/fast'))
-    await run(() => releaseSlow(listingFor('/slow')))
+    await run(() => slow.resolve(listingFor('/slow')))
 
     expect(latest.listing?.resolvedPath).toBe('/fast')
   })
 
   it('follows symlinked directories and opens resolved files', async () => {
-    await render({ active: true, source: local, worktreePath: '/home/allen/codes' })
+    await render({ active: true })
     await run(() => latest.navigateUp())
 
     resolveEntryMock.mockResolvedValueOnce({
@@ -185,40 +174,49 @@ describe('useFileExplorerHostBrowser', () => {
   })
 
   it('starts each new visit at the workspace root', async () => {
-    const props = { source: local, worktreePath: '/home/allen/codes' }
-    await render({ active: true, visit: '1', ...props })
+    await render({ active: true, visit: '1' })
     await run(() => latest.navigateUp())
 
-    await render({ active: false, visit: '1', ...props })
+    await render({ active: false, visit: '1' })
     expect(latest.listing).toBeNull()
 
-    await render({ active: true, visit: '2', ...props })
+    await render({ active: true, visit: '2' })
     expect(latest.listing?.resolvedPath).toBe('/home/allen/codes')
   })
 
-  it('drops a slow click resolution once the user navigates elsewhere', async () => {
-    await render({ active: true, source: local, worktreePath: '/home/allen/codes' })
-    let releaseResolve: (value: unknown) => void = () => {}
-    resolveEntryMock.mockImplementationOnce(
-      () => new Promise((resolve) => (releaseResolve = resolve))
-    )
+  it.each([
+    {
+      name: 'the user navigates elsewhere',
+      entry: { name: 'link', isDirectory: false, isSymlink: true },
+      interrupt: () => run(() => latest.navigate('/var')),
+      after: () => expect(latest.listing?.resolvedPath, 'the new folder stays shown').toBe('/var')
+    },
+    {
+      name: 'the visit ends',
+      entry: { name: 'notes.md', isDirectory: false, isSymlink: false },
+      interrupt: () => render({ active: false })
+    }
+  ])('drops a slow click resolution once $name', async ({ entry, interrupt, after }) => {
+    await render({ active: true })
+    const click = Promise.withResolvers<unknown>()
+    resolveEntryMock.mockImplementationOnce(() => click.promise)
 
-    await run(() => latest.activateEntry({ name: 'link', isDirectory: false, isSymlink: true }))
-    await run(() => latest.navigate('/var'))
+    await run(() => latest.activateEntry(entry))
+    await interrupt()
     await run(() =>
-      releaseResolve({
+      click.resolve({
         kind: 'file',
-        realPath: '/home/allen/codes/link',
+        realPath: `/home/allen/codes/${entry.name}`,
         workspaceRelativePath: null
       })
     )
 
-    expect(latest.listing?.resolvedPath).toBe('/var')
+    after?.()
     expect(openHostFileMock).not.toHaveBeenCalled()
   })
 
   it('stays on the current folder when a folder cannot be opened', async () => {
-    await render({ active: true, source: local, worktreePath: '/home/allen/codes' })
+    await render({ active: true })
     fetchListingMock.mockRejectedValueOnce(new Error('EACCES: permission denied'))
 
     await run(() => latest.navigate('/root'))
@@ -229,12 +227,16 @@ describe('useFileExplorerHostBrowser', () => {
     expect(toastErrorMock).toHaveBeenCalledTimes(1)
     await run(() => latest.navigateUp())
     expect(latest.listing?.resolvedPath).toBe('/home/allen')
+    expect(fetchListingMock, 'navigateUp lists the parent folder').toHaveBeenLastCalledWith(
+      local,
+      '/home/allen'
+    )
   })
 
   it('shows a full error only when the first Host listing fails', async () => {
     fetchListingMock.mockRejectedValueOnce(new Error('connection lost'))
 
-    await render({ active: true, source: local, worktreePath: '/home/allen/codes' })
+    await render({ active: true })
 
     expect(latest.listing).toBeNull()
     expect(latest.error).toMatch(/connection lost/)
@@ -243,7 +245,7 @@ describe('useFileExplorerHostBrowser', () => {
   it('keeps the spinner hidden for fast listings and shows it for slow ones', async () => {
     vi.useFakeTimers()
     try {
-      await render({ active: true, source: local, worktreePath: '/home/allen/codes' })
+      await render({ active: true })
       fetchListingMock.mockImplementationOnce(() => new Promise<HostDirectoryListing>(() => {}))
 
       await run(() => latest.navigate('/slow'))

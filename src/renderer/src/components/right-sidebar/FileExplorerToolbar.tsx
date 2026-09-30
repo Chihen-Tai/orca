@@ -32,8 +32,7 @@ type FileExplorerToolbarProps = {
   onToggleDotfiles: () => void
   hostMode: {
     active: boolean
-    /** Null when Host mode can be entered; otherwise why it cannot. */
-    unavailableLabel: string | null
+    available: boolean
     onToggle: () => void
   }
 }
@@ -56,8 +55,13 @@ export function FileExplorerToolbar({
 }: FileExplorerToolbarProps): React.JSX.Element {
   const hostModeLabel = hostMode.active
     ? translate('fileExplorer.host.returnToProject', 'Return to workspace root')
-    : (hostMode.unavailableLabel ?? translate('fileExplorer.host.enter', 'Browse host filesystem'))
-  const canToggleHostMode = hostMode.active || hostMode.unavailableLabel === null
+    : hostMode.available
+      ? translate('fileExplorer.host.enter', 'Browse host filesystem')
+      : translate(
+          'fileExplorer.host.unavailable',
+          'Host browsing is not available for this workspace'
+        )
+  const canToggleHostMode = hostMode.active || hostMode.available
   return (
     <div className="flex h-8 min-h-8 items-center gap-2 border-b border-border px-2">
       <span

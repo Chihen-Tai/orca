@@ -34,6 +34,12 @@ const store = {
   getSettings: () => ({})
 } as unknown as Store
 
+function sshProvider(stat = vi.fn(), realpath = (path: string): string => path) {
+  const provider = { realpath: vi.fn(async (path: string) => realpath(path)), stat }
+  requireSshFilesystemProviderMock.mockReturnValue(provider)
+  return provider
+}
+
 describe('host browse handlers', () => {
   let root: string
 
@@ -99,19 +105,25 @@ describe('host browse handlers', () => {
     })
   })
 
-  it('rejects relative and null-byte paths', async () => {
-    await expect(resolveHostBrowseEntry('outside/notes.txt')).rejects.toThrow(/absolute/)
-    await expect(resolveHostBrowseEntry(`${root}\0x`)).rejects.toThrow(/null bytes/)
+  it('rejects relative and null-byte paths, locally and before SSH paths reach the relay', async () => {
+    const provider = sshProvider()
+
+    await expect(resolveHostBrowseEntry('outside/notes.txt'), 'relative').rejects.toThrow(
+      /absolute/
+    )
+    await expect(resolveHostBrowseEntry(`${root}\0x`), 'local NUL').rejects.toThrow(/null bytes/)
+    await expect(
+      resolveHostBrowseEntry('/home/allen\0x', 'ssh-1'),
+      'null-byte SSH path'
+    ).rejects.toThrow(/null bytes/)
+    expect(provider.realpath, 'null-byte SSH path never reaches the relay').not.toHaveBeenCalled()
   })
 
   it('classifies SSH entries through the provider realpath without local grants', async () => {
-    const provider = {
-      realpath: vi.fn(async (path: string) =>
-        path === '/home/allen/link' ? '/home/allen/codes/repo/src' : path
-      ),
-      stat: vi.fn().mockResolvedValue({ type: 'directory', size: 0, mtime: 0 })
-    }
-    requireSshFilesystemProviderMock.mockReturnValue(provider)
+    const provider = sshProvider(
+      vi.fn().mockResolvedValue({ type: 'directory', size: 0, mtime: 0 }),
+      (path) => (path === '/home/allen/link' ? '/home/allen/codes/repo/src' : path)
+    )
 
     await expect(
       resolveHostBrowseEntry('/home/allen/link', 'ssh-1', '/home/allen/codes/repo')
@@ -127,14 +139,12 @@ describe('host browse handlers', () => {
   })
 
   it('maps SSH file stats to file and anything else to unsupported', async () => {
-    const provider = {
-      realpath: vi.fn().mockImplementation(async (path: string) => path),
-      stat: vi
+    sshProvider(
+      vi
         .fn()
         .mockResolvedValueOnce({ type: 'file', size: 1, mtime: 0 })
         .mockResolvedValueOnce({ type: 'symlink', size: 1, mtime: 0 })
-    }
-    requireSshFilesystemProviderMock.mockReturnValue(provider)
+    )
 
     await expect(resolveHostBrowseEntry('/etc/hosts', 'ssh-1')).resolves.toEqual({
       kind: 'file',
@@ -168,25 +178,13 @@ describe('host browse handlers', () => {
     expect(isPathAllowed(outsideLink, store)).toBe(false)
   })
 
-  it('rejects null-byte SSH paths before they reach the relay', async () => {
-    const provider = { realpath: vi.fn(), stat: vi.fn() }
-    requireSshFilesystemProviderMock.mockReturnValue(provider)
-
-    await expect(resolveHostBrowseEntry('/home/allen\0x', 'ssh-1')).rejects.toThrow(/null bytes/)
-    expect(provider.realpath).not.toHaveBeenCalled()
-  })
-
   it('treats an SSH file as outside the workspace when the workspace realpath fails', async () => {
-    const provider = {
-      realpath: vi.fn(async (path: string) => {
-        if (path === '/home/allen/codes') {
-          throw new Error('connection lost')
-        }
-        return path
-      }),
-      stat: vi.fn().mockResolvedValue({ type: 'file', size: 1, mtime: 0 })
-    }
-    requireSshFilesystemProviderMock.mockReturnValue(provider)
+    sshProvider(vi.fn().mockResolvedValue({ type: 'file', size: 1, mtime: 0 }), (path) => {
+      if (path === '/home/allen/codes') {
+        throw new Error('connection lost')
+      }
+      return path
+    })
 
     await expect(
       resolveHostBrowseEntry('/home/allen/codes/src/a.ts', 'ssh-1', '/home/allen/codes')

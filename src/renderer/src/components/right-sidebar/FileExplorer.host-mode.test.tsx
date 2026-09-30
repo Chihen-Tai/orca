@@ -136,8 +136,8 @@ vi.mock('./use-file-explorer-host-mode', async () => {
         active,
         filterQuery: '',
         setFilterQuery: vi.fn(),
-        browser: {},
-        toolbar: { active, unavailableLabel: null, onToggle: vi.fn() }
+        available: true,
+        browser: {}
       }
     }
   }
@@ -182,8 +182,9 @@ afterEach(() => {
 })
 
 describe('FileExplorer Host mode', () => {
-  it('overlays the Host list without remounting the tree or touching watchers', async () => {
+  it('overlays the Host list without remounting, re-rendering, or re-watching the tree', async () => {
     await render()
+    const rendersBefore = h.treeRenders
     expect(h.treeMounts).toBe(1)
     expect(container.querySelector('[data-testid="host-list"]')).toBeNull()
 
@@ -192,6 +193,9 @@ describe('FileExplorer Host mode', () => {
       expect(container.querySelector('[data-testid="host-list"]') !== null).toBe(active)
     }
 
+    expect(h.treeRenders, 'toggling Host mode does not re-render the Project tree').toBe(
+      rendersBefore
+    )
     expect(h.treeMounts).toBe(1)
     expect(h.treeUnmounts).toBe(0)
     expect(h.watchWorktree).not.toHaveBeenCalled()
@@ -210,26 +214,16 @@ describe('FileExplorer Host mode', () => {
     expect(h.search).not.toHaveBeenCalled()
   })
 
-  it('leaves the Project tree interactive outside Host mode', async () => {
+  it('keeps the Project tree and query rows interactive until Host mode makes them inert', async () => {
     await render()
-
-    expect(container.querySelector('[data-testid="tree"]')?.closest('[inert]')).toBeNull()
-    expect(container.querySelector('[data-testid="host-bar"]')).toBeNull()
-  })
-
-  it('toggles Host mode without re-rendering the Project tree', async () => {
-    await render()
-    const rendersBefore = h.treeRenders
-
-    for (const active of [true, false, true]) {
-      await act(async () => h.setHostActive(active))
-    }
-
-    expect(h.treeRenders).toBe(rendersBefore)
-  })
-
-  it('makes the covered Project query rows unfocusable in Host mode', async () => {
-    await render()
+    expect(
+      container.querySelector('[data-testid="tree"]')?.closest('[inert]'),
+      'Project tree is interactive outside Host mode'
+    ).toBeNull()
+    expect(
+      container.querySelector('[data-testid="host-bar"]'),
+      'no Host bar outside Host mode'
+    ).toBeNull()
     const projectFilter = container.querySelector('input[aria-label="Find files"]')
     const contentsQuery = container.querySelector('[data-testid="contents-query"]')
     expect(projectFilter?.closest('[inert]')).toBeNull()

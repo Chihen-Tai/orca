@@ -172,7 +172,7 @@ function makeToolbar(overrides: Partial<Parameters<typeof FileExplorerToolbar>[0
     onToggleGitIgnoredFiles: vi.fn(),
     showDotfiles: true,
     onToggleDotfiles: vi.fn(),
-    hostMode: { active: false, unavailableLabel: null, onToggle: vi.fn() },
+    hostMode: { active: false, available: true, onToggle: vi.fn() },
     ...overrides
   })
 }
@@ -193,7 +193,7 @@ function findButtonByLabel(node: unknown, label: string): { props: Record<string
 describe('FileExplorerToolbar', () => {
   it('enters Host mode from the host filesystem toggle', () => {
     const onToggle = vi.fn()
-    const element = makeToolbar({ hostMode: { active: false, unavailableLabel: null, onToggle } })
+    const element = makeToolbar({ hostMode: { active: false, available: true, onToggle } })
 
     const button = findButtonByLabel(element, 'Browse host filesystem')
     ;(button.props.onClick as () => void)()
@@ -206,7 +206,7 @@ describe('FileExplorerToolbar', () => {
 
   it('offers a return to the workspace root while Host mode is active', () => {
     const onToggle = vi.fn()
-    const element = makeToolbar({ hostMode: { active: true, unavailableLabel: null, onToggle } })
+    const element = makeToolbar({ hostMode: { active: true, available: true, onToggle } })
 
     const button = findButtonByLabel(element, 'Return to workspace root')
     ;(button.props.onClick as () => void)()
@@ -218,10 +218,12 @@ describe('FileExplorerToolbar', () => {
 
   it('disables an unavailable Host toggle and explains why', () => {
     const element = makeToolbar({
-      hostMode: { active: false, unavailableLabel: 'Not here', onToggle: vi.fn() }
+      hostMode: { active: false, available: false, onToggle: vi.fn() }
     })
 
-    expect(findButtonByLabel(element, 'Not here').props.disabled).toBe(true)
+    expect(
+      findButtonByLabel(element, 'Host browsing is not available for this workspace').props.disabled
+    ).toBe(true)
   })
 
   it('fires the refresh action from the icon button', () => {

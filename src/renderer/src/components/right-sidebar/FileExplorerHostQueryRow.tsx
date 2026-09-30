@@ -13,11 +13,7 @@ export function FileExplorerHostQueryRow({
 }: {
   view: RightSidebarExplorerView
 }): React.JSX.Element | null {
-  const {
-    active,
-    filterQuery: query,
-    setFilterQuery: onQueryChange
-  } = useFileExplorerHostModeContext()
+  const { active, filterQuery, setFilterQuery } = useFileExplorerHostModeContext()
   if (!active) {
     return null
   }
@@ -32,10 +28,10 @@ export function FileExplorerHostQueryRow({
         </p>
       ) : (
         <FileExplorerNameFilter
-          query={query}
+          query={filterQuery}
           scopeLabel={translate('fileExplorer.host.thisFolder', 'this folder')}
-          onQueryChange={onQueryChange}
-          onClear={() => onQueryChange('')}
+          onQueryChange={setFilterQuery}
+          onClear={() => setFilterQuery('')}
         />
       )}
     </div>

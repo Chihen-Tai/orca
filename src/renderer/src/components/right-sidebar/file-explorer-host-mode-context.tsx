@@ -35,7 +35,11 @@ export function FileExplorerHostAwareToolbar(
       {...props}
       canRefresh={props.canRefresh && !hostMode.active}
       canCollapseAll={props.canCollapseAll && !hostMode.active}
-      hostMode={hostMode.toolbar}
+      hostMode={{
+        active: hostMode.active,
+        available: hostMode.available,
+        onToggle: hostMode.active ? hostMode.exit : hostMode.enter
+      }}
     />
   )
 }

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { translate } from '@/i18n/i18n'
 import { useAppStore } from '@/store'
 import {
   getExecutionHostLabel,
@@ -25,8 +24,9 @@ export type FileExplorerHostMode = {
   setFilterQuery: (query: string) => void
   enter: () => void
   exit: () => void
+  /** False when this workspace's host cannot be browsed from this client. */
+  available: boolean
   browser: FileExplorerHostBrowser
-  toolbar: { active: boolean; unavailableLabel: string | null; onToggle: () => void }
 }
 
 type HostVisit = { worktreeId: string; hostKey: string; entry: number }
@@ -63,8 +63,7 @@ export function useFileExplorerHostMode({
     setVisit(null)
     setFilterQuery('')
   }
-  const active =
-    visit !== null && visit.worktreeId === activeWorktreeId && visit.hostKey === hostKey
+  const active = visit !== null
 
   const sshTargetLabels = useAppStore((s) => s.sshTargetLabels)
   const hostLabel =
@@ -82,7 +81,6 @@ export function useFileExplorerHostMode({
 
   const enter = useCallback(() => {
     if (hostKey && activeWorktreeId) {
-      setFilterQuery('')
       setVisit({ worktreeId: activeWorktreeId, hostKey, entry: ++entryCounterRef.current })
     }
   }, [activeWorktreeId, hostKey])
@@ -108,22 +106,9 @@ export function useFileExplorerHostMode({
     })
   }, [active, activeWorktreeId, exit])
 
-  const toolbar = useMemo(
-    () => ({
-      active,
-      unavailableLabel: source
-        ? null
-        : translate(
-            'fileExplorer.host.unavailable',
-            'Host browsing is not available for this workspace'
-          ),
-      onToggle: active ? exit : enter
-    }),
-    [active, source, enter, exit]
-  )
-
+  const available = source !== null
   return useMemo(
-    () => ({ active, hostLabel, filterQuery, setFilterQuery, enter, exit, browser, toolbar }),
-    [active, hostLabel, filterQuery, enter, exit, browser, toolbar]
+    () => ({ active, available, hostLabel, filterQuery, setFilterQuery, enter, exit, browser }),
+    [active, available, hostLabel, filterQuery, enter, exit, browser]
   )
 }
