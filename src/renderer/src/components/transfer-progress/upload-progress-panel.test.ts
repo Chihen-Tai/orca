@@ -71,6 +71,18 @@ describe('createUploadProgressPanel', () => {
     expect(upload.cancelledSourcePaths.has('/local/videos')).toBe(true)
   })
 
+  it('handles a failed cancel request and leaves the row cancelling', () => {
+    const catchRejection = vi.fn()
+    cancelRuntimeUpload.mockReturnValue({ catch: catchRejection })
+    const upload = createUploadProgressPanel()
+    upload.progress.onStart([row])
+    openPanel.mock.calls[0][2]('u1')
+
+    // Why: an unhandled rejection only fails the run, not this case, so assert the handler.
+    expect(catchRejection).toHaveBeenCalledWith(expect.any(Function))
+    expect(panel.markCancelling).toHaveBeenCalledWith('u1')
+  })
+
   it('ends a cancelled source as cancelled, but one that finished anyway as done', () => {
     const upload = createUploadProgressPanel()
     upload.progress.onStart([row, { ...row, uploadId: 'u2', sourcePath: '/local/b.txt' }])

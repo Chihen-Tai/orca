@@ -23,7 +23,7 @@ export function createUploadProgressPanel(): UploadProgressPanel {
       cancelledSourcePaths.add(sourcePath)
     }
     panel?.markCancelling(uploadId)
-    void window.api.fs.cancelRuntimeUpload({ uploadId })
+    void window.api.fs.cancelRuntimeUpload({ uploadId }).catch(() => {})
   }
   return {
     progress: {
