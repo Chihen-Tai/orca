@@ -87,11 +87,11 @@ function sessionState(): StructuredAgentSessionState {
     fence: 3,
     items: [],
     submissions: [],
-    retainedItemLimit: 1_024,
+    retainedOwnItemLimit: 1_024,
+    retainedItemCap: 8_192,
     hasOlder: true,
     status: 'error',
     error: 'cached transport error',
-    handoff: null,
     commands: [{ name: 'provider-command', kind: 'command' }]
   }
 }

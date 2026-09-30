@@ -161,6 +161,9 @@ describe('mobile RPC allowlist', () => {
       'agentSession.reveal',
       'agentSession.send',
       'agentSession.cancel',
+      'agentSession.queuedMessageSend',
+      'agentSession.queuedMessageDelete',
+      'agentSession.queuedMessagesResume',
       'agentSession.close',
       'agentSession.respondToApproval',
       'agentSession.respondToQuestion',
@@ -177,6 +180,5 @@ describe('mobile RPC allowlist', () => {
       'agentSession.release'
     ])
     expect(mobileRpcAllowlist().has('agentSession.attach')).toBe(false)
-    expect(mobileRpcAllowlist().has('agentSession.requestHandoff')).toBe(false)
   })
 })

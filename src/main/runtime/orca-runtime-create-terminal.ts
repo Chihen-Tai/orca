@@ -14,6 +14,12 @@ export class OrcaRuntimeWithCreateTerminal extends OrcaRuntimeWithTerminalCreate
     if (opts.startupAgent && worktreeSelector === undefined) {
       throw new Error(`startupAgent ${opts.startupAgent} requires a workspace selector.`)
     }
+    const callerColors = dependencies.normalizeColorQueryReplyColors(opts.terminalColorQueryReplies)
+    // Why: only a paired client sends colours here; a client that predates
+    // terminal.setViewerColors reports its theme to a headless host only this way.
+    if (callerColors) {
+      dependencies.setPairedViewerColors(callerColors)
+    }
     const presentation = dependencies.resolveTerminalPresentation(opts)
     const requiresRendererFocus = opts.presentation === 'focused' || opts.focus === true
     const availableAuthoritativeWindow = this.getAvailableAuthoritativeWindow()
@@ -116,14 +122,13 @@ export class OrcaRuntimeWithCreateTerminal extends OrcaRuntimeWithTerminalCreate
           tabId,
           agentTeamsPlan?.env
         )
-        const terminalColorQueryReplies =
-          launchOpts.terminalColorQueryReplies ??
-          dependencies.getTerminalViewColorQueryReplyColors()
+        const terminalColorQueryReplies = dependencies.getTerminalViewerColors()
         if (launchOpts.signal?.aborted) {
           throw new Error('client_disconnected')
         }
         let result: Awaited<ReturnType<NonNullable<dependencies.RuntimePtyController['spawn']>>>
         try {
+          launchOpts.onPtySpawnDispatched?.()
           result = await this.ptyController.spawn({
             cols: 120,
             rows: 40,
@@ -212,12 +217,6 @@ export class OrcaRuntimeWithCreateTerminal extends OrcaRuntimeWithTerminalCreate
           terminalHandle: preAllocatedHandle,
           ...(result.incarnationId ? { incarnationId: result.incarnationId } : {})
         })
-        if (launchOpts.structuredAgentSessionId) {
-          dependencies.agentSessionPtyWriteGate.bindPty(
-            result.id,
-            launchOpts.structuredAgentSessionId
-          )
-        }
         const pty = this.getOrCreatePtyWorktreeRecord(result.id)
         if (pty) {
           pty.runtimeSessionOwned = true
@@ -298,6 +297,8 @@ export class OrcaRuntimeWithCreateTerminal extends OrcaRuntimeWithTerminalCreate
         releaseStablePaneCreate()
       }
     }
+    // The renderer owns this spawn, so this process cannot see when it is requested.
+    opts.onPtySpawnDispatched?.()
     return createDesktopTerminal(this, worktreeSelector, opts, presentation, rendererWindow)
   }
 }
