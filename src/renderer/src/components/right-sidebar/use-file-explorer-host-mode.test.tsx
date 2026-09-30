@@ -26,8 +26,12 @@ vi.mock('@/store', () => {
 vi.mock('./file-explorer-operation-owner', () => ({
   getFileExplorerOperationOwnerFromState: () => ({ kind: 'local' })
 }))
+const { visitKeys } = vi.hoisted(() => ({ visitKeys: [] as (string | null)[] }))
 vi.mock('./use-file-explorer-host-browser', () => ({
-  useFileExplorerHostBrowser: () => ({})
+  useFileExplorerHostBrowser: ({ visitKey }: { visitKey: string | null }) => {
+    visitKeys.push(visitKey)
+    return {}
+  }
 }))
 
 let root: Root
@@ -90,6 +94,7 @@ describe('useFileExplorerHostMode', () => {
 
   it('ends Host mode when the user leaves the workspace, even after coming back', async () => {
     await act(async () => latest.enter())
+    await act(async () => latest.setFilterQuery('notes'))
     expect(latest.active).toBe(true)
 
     await act(async () => root.render(<Harness worktreeId="wt-2" />))
@@ -97,5 +102,19 @@ describe('useFileExplorerHostMode', () => {
 
     await act(async () => root.render(<Harness worktreeId="wt-1" />))
     expect(latest.active).toBe(false)
+    expect(latest.filterQuery).toBe('')
+  })
+
+  it('gives every entry a fresh browsing session so an old listing never reappears', async () => {
+    await act(async () => latest.enter())
+    const firstVisit = visitKeys.at(-1)
+    await act(async () => latest.exit())
+    expect(visitKeys.at(-1)).toBeNull()
+
+    await act(async () => latest.enter())
+
+    expect(firstVisit).not.toBeNull()
+    expect(visitKeys.at(-1)).not.toBeNull()
+    expect(visitKeys.at(-1)).not.toBe(firstVisit)
   })
 })

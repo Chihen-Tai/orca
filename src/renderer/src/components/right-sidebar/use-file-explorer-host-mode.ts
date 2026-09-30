@@ -52,7 +52,7 @@ export function useFileExplorerHostMode({
     [owner]
   )
   // Why: adjust during render (not in an effect) so a stale visit never paints.
-  if (visit && (visit.worktreeId !== activeWorktreeId || !source)) {
+  if (visit && visit.worktreeId !== activeWorktreeId) {
     setVisit(null)
     setFilterQuery('')
   }
