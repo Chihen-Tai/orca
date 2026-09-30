@@ -1,3 +1,4 @@
+import { isValidElement } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { toast } from 'sonner'
 import type { RuntimeImportProgressHandlers } from '@/runtime/runtime-upload-progress-tracker'
@@ -17,8 +18,10 @@ const mocks = vi.hoisted(() => {
       'repo-a': [{ id: 'wt-a', displayName: 'ux-polish', branch: '', path: '/srv/a' }]
     }
   }
+  const panel: { element: unknown } = { element: null }
   return {
     store: { state, listeners },
+    panel,
     runImport: vi.fn()
   }
 })
@@ -34,13 +37,19 @@ vi.mock('@/store', () => ({
 }))
 vi.mock('sonner', () => ({
   toast: {
-    custom: vi.fn((_render: unknown, options?: { id?: string | number }) => options?.id ?? 'panel'),
+    custom: vi.fn((render: () => unknown, options?: { id?: string | number }) => {
+      mocks.panel.element = render()
+      return options?.id ?? 'panel'
+    }),
     dismiss: vi.fn(),
     error: vi.fn(),
     message: vi.fn()
   }
 }))
-vi.mock('@/i18n/i18n', () => ({ translate: (_key: string, fallback: string) => fallback }))
+vi.mock('@/i18n/i18n', () => ({
+  translate: (_key: string, fallback: string, values?: Record<string, unknown>) =>
+    fallback.replace(/\{\{(\w+)\}\}/g, (_match, name: string) => String(values?.[name] ?? ''))
+}))
 vi.mock('@/lib/browser-uuid', () => ({ createBrowserUuid: () => 'session-1' }))
 vi.mock('@/runtime/runtime-file-client', () => ({
   importExternalPathsToRuntime: (
@@ -80,6 +89,27 @@ const fakePaneHandles = { dropTarget: {}, manager: {}, paneTransports: new Map()
 // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: pasteResolvedDropPaths is mocked, so these pane handles are passed through and never read.
 const paneHandles = fakePaneHandles as unknown as PaneHandles
 
+function dropArgs(dataPaths: string[]): Parameters<typeof uploadRuntimeDropPaths>[0] {
+  return {
+    ...paneHandles,
+    dataPaths,
+    tabId: 'tab-1',
+    worktreePath: '/srv/a',
+    runtimeEnvironmentId: 'env-1',
+    settings: null,
+    worktreeId: 'wt-a'
+  }
+}
+
+/** Presses a row's cancel button on the panel that is currently shown. */
+function cancelPanelRow(uploadId: string): void {
+  const panel = mocks.panel.element
+  if (!isValidElement<{ onCancel: (uploadId: string) => void }>(panel)) {
+    throw new Error('no upload panel is shown')
+  }
+  panel.props.onCancel(uploadId)
+}
+
 /** Runs one single-file drop; `during` fires after the panel opened, before the upload ends. */
 function dropOneFile(during: () => void = () => {}): Promise<void> {
   mocks.runImport.mockImplementation(async (progress: RuntimeImportProgressHandlers) => {
@@ -89,15 +119,7 @@ function dropOneFile(during: () => void = () => {}): Promise<void> {
     progress.onFinish()
     return { results: [imported] }
   })
-  return uploadRuntimeDropPaths({
-    ...paneHandles,
-    dataPaths: ['/local/clip.mp4'],
-    tabId: 'tab-1',
-    worktreePath: '/srv/a',
-    runtimeEnvironmentId: 'env-1',
-    settings: null,
-    worktreeId: 'wt-a'
-  })
+  return uploadRuntimeDropPaths(dropArgs(['/local/clip.mp4']))
 }
 
 describe('uploadRuntimeDropPaths panel scope', () => {
@@ -106,6 +128,7 @@ describe('uploadRuntimeDropPaths panel scope', () => {
     mocks.store.listeners.clear()
     vi.mocked(toast.custom).mockClear()
     vi.mocked(toast.dismiss).mockClear()
+    vi.mocked(toast.error).mockClear()
   })
 
   it('keeps the panel off a workspace the user is not looking at', async () => {
@@ -142,5 +165,33 @@ describe('uploadRuntimeDropPaths panel scope', () => {
 
     expect(getRuntimeUploadSession('session-1')).toBeUndefined()
     expect(mocks.store.listeners.size).toBe(0)
+  })
+
+  it('still reports a failed copy when another copy of the same path was cancelled', async () => {
+    vi.stubGlobal('window', { api: { fs: { cancelRuntimeUpload: vi.fn(async () => {}) } } })
+    const copies = [
+      { ...row, uploadId: 'up-1' },
+      { ...row, uploadId: 'up-2' }
+    ]
+    mocks.runImport.mockImplementation(async (progress: RuntimeImportProgressHandlers) => {
+      progress.onStart(copies)
+      cancelPanelRow('up-1')
+      progress.onFinish()
+      // Mirrors the import client, which marks only the cancelled copy.
+      const results: ImportItemResult[] = copies.map(({ uploadId }) => ({
+        sourcePath: row.sourcePath,
+        status: 'failed',
+        reason: 'disk full',
+        ...(progress.isCancelled?.(uploadId) ? { cancelled: true } : {})
+      }))
+      return { results }
+    })
+
+    await uploadRuntimeDropPaths(dropArgs([row.sourcePath, row.sourcePath]))
+
+    expect(toast.error).toHaveBeenCalledWith('Failed to upload 1 file.', {
+      description: undefined
+    })
+    vi.unstubAllGlobals()
   })
 })

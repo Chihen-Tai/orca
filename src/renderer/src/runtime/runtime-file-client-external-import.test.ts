@@ -394,7 +394,9 @@ describe('runtime file client', () => {
           }
         }
       )
-    ).resolves.toMatchObject({ results: [{ status: 'failed', reason: 'Upload cancelled' }] })
+    ).resolves.toMatchObject({
+      results: [{ status: 'failed', reason: 'Upload cancelled', cancelled: true }]
+    })
 
     const methods = runtimeEnvironmentCall.mock.calls.map(([call]) => call.method)
     expect(methods.filter((method) => method === 'files.createDirNoClobber')).toHaveLength(1)

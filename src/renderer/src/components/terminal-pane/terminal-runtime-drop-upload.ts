@@ -33,19 +33,13 @@ export async function uploadRuntimeDropPaths(
   const targetShell = getTerminalTargetShellForWorktreePath(args.worktreePath)
   const destinationDir = joinRuntimeTerminalDropDir(args.worktreePath)
   const sessionId = createBrowserUuid()
-  const cancelledSourcePaths = new Set<string>()
   const cancelledUploadIds = new Set<string>()
-  const sourcePathsByUploadId = new Map<string, string>()
   let panel: WorktreeScopedToast | null = null
   const closePanel = (): void => {
     panel?.close()
     endRuntimeUploadSession(sessionId)
   }
   const cancelRow = (uploadId: string): void => {
-    const sourcePath = sourcePathsByUploadId.get(uploadId)
-    if (sourcePath) {
-      cancelledSourcePaths.add(sourcePath)
-    }
     cancelledUploadIds.add(uploadId)
     updateRuntimeUploadRow(sessionId, uploadId, { status: 'cancelled' })
     void window.api.fs.cancelRuntimeUpload({ uploadId })
@@ -71,9 +65,6 @@ export async function uploadRuntimeDropPaths(
             // A drop where every source was skipped still reports a start.
             if (rows.length === 0) {
               return
-            }
-            for (const row of rows) {
-              sourcePathsByUploadId.set(row.uploadId, row.sourcePath)
             }
             startRuntimeUploadSession(
               sessionId,
@@ -145,7 +136,7 @@ export async function uploadRuntimeDropPaths(
       // Why: a cancel is the user's own decision, not a failure to report back.
       results
         .filter((result) => result.status === 'failed')
-        .filter((result) => !cancelledSourcePaths.has(result.sourcePath)),
+        .filter((result) => result.cancelled !== true),
       describeDropWorkspaceIfInactive(args.worktreeId, args.worktreePath)
     )
   } catch (err) {

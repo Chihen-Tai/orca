@@ -226,7 +226,9 @@ export async function importExternalPathsToRuntime(
         results.push({
           sourcePath: source.sourcePath,
           status: 'failed',
-          reason: error instanceof Error ? error.message : String(error)
+          reason: error instanceof Error ? error.message : String(error),
+          // Why: marked per source, since a path dropped twice can be cancelled once.
+          ...(sourceUploadId && handlers?.isCancelled?.(sourceUploadId) ? { cancelled: true } : {})
         })
         // Why: reported as failed even for a cancel — the store keeps the row's
         // already-set 'cancelled' state, so the user's own action is not relabelled.
