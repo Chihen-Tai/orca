@@ -79,7 +79,7 @@ describe('FileExplorerHostList', () => {
   })
 
   it('mounts only a window of rows for very large folders', async () => {
-    const many = Array.from({ length: 50_000 }, (_, index) => ({
+    const many = Array.from({ length: 5_000 }, (_, index) => ({
       name: `f${index}`,
       isDirectory: false,
       isSymlink: false

@@ -28,8 +28,6 @@ export type FileExplorerHostBrowser = {
   navigateUp: () => void
   refresh: () => void
   activateEntry: (entry: DirEntry) => void
-  /** Drops the previous visit so the next entry starts at the workspace root. */
-  reset: () => void
 }
 
 type HostBrowserSession = {
@@ -39,34 +37,19 @@ type HostBrowserSession = {
   pendingPath: string | null
 }
 
-function getSourceKey(source: HostBrowseSource | null): string | null {
-  if (!source) {
-    return null
-  }
-  return source.kind === 'ssh'
-    ? `ssh:${source.connectionId}`
-    : source.kind === 'runtime'
-      ? `runtime:${source.environmentId}`
-      : 'local'
-}
-
-/** Session-only Host-mode browsing; state is keyed to the host + workspace being browsed. */
+/** One browsing session per Host visit; `visitKey` is null outside Host mode. */
 export function useFileExplorerHostBrowser({
-  active,
+  visitKey,
   source,
   worktreeId,
   worktreePath
 }: {
-  active: boolean
+  visitKey: string | null
   source: HostBrowseSource | null
   worktreeId: string | null
   worktreePath: string | null
 }): FileExplorerHostBrowser {
-  const sourceKey = getSourceKey(source)
-  const sessionKey =
-    active && sourceKey && worktreeId && worktreePath
-      ? `${sourceKey}\0${worktreeId}\0${worktreePath}`
-      : null
+  const sessionKey = visitKey
   const [session, setSession] = useState<HostBrowserSession | null>(null)
   const current = session && session.key === sessionKey ? session : null
   // Why: breadcrumb clicks race over SSH exec channels; only the latest request may land.
@@ -117,18 +100,9 @@ export function useFileExplorerHostBrowser({
   useEffect(() => {
     const generation = ++listingGenerationRef.current
     activationGenerationRef.current++
-    if (!sessionKey || !worktreePath) {
-      return
+    if (sessionKey && worktreePath) {
+      startListing(sessionKey, worktreePath, generation)
     }
-    // Why: reactivating without enter (switching back to this workspace) keeps the folder the
-    // user left on screen and revalidates it, since Host mode has no watcher; only enter()
-    // resets to the workspace root. A request that deactivation cut off is reissued.
-    const retained = sessionRef.current?.key === sessionKey ? sessionRef.current : null
-    startListing(
-      sessionKey,
-      retained?.pendingPath ?? retained?.listing?.resolvedPath ?? worktreePath,
-      generation
-    )
   }, [sessionKey, startListing, worktreePath])
 
   const navigate = useCallback(
@@ -170,12 +144,6 @@ export function useFileExplorerHostBrowser({
     }
   }, [currentPath, navigate, worktreePath])
 
-  const reset = useCallback(() => {
-    listingGenerationRef.current++
-    activationGenerationRef.current++
-    setSession(null)
-  }, [])
-
   const activateEntry = useCallback(
     (entry: DirEntry) => {
       if (!source || !listing || !worktreeId || !worktreePath) {
@@ -200,7 +168,6 @@ export function useFileExplorerHostBrowser({
           }
           openHostFile({
             plan: planHostFileOpen({
-              source,
               worktreePath,
               entryPath,
               workspaceRelativePath: resolution.workspaceRelativePath
@@ -240,8 +207,7 @@ export function useFileExplorerHostBrowser({
       navigate,
       navigateUp,
       refresh,
-      activateEntry,
-      reset
+      activateEntry
     }),
     [
       listing,
@@ -252,8 +218,7 @@ export function useFileExplorerHostBrowser({
       navigate,
       navigateUp,
       refresh,
-      activateEntry,
-      reset
+      activateEntry
     ]
   )
 }

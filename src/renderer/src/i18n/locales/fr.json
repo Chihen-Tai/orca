@@ -18516,14 +18516,11 @@
       "contentsUnavailable": "La recherche de contenu porte sur l’espace de travail. Revenez à la racine de l’espace de travail pour l’utiliser.",
       "thisFolder": "ce dossier",
       "enter": "Parcourir le système de fichiers de l’hôte",
-      "runtimeFileOutsideWorkspace": "Les fichiers situés hors de l’espace de travail ne peuvent pas encore être ouverts sur ce serveur distant.",
       "folderOpenFailed": "Impossible d’ouvrir ce dossier : {{error}}",
       "unsupportedEntry": "Cet élément ne peut pas être ouvert.",
       "entryMissing": "Cet élément n’existe plus.",
       "entryUnverifiable": "Impossible d’accéder à cet élément : {{error}}",
-      "unavailableRuntimeRemote": "La navigation sur l’hôte n’est pas disponible pour les espaces de travail que ce serveur atteint via SSH",
-      "unavailableClient": "La navigation sur l’hôte n’est pas disponible dans ce client",
-      "unavailableUnresolved": "La navigation sur l’hôte sera disponible une fois l’hôte de l’espace de travail connu"
+      "unavailable": "La navigation sur l’hôte n’est pas disponible pour cet espace de travail"
     }
   },
   "sparsePreset": {

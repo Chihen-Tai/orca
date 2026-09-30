@@ -18516,14 +18516,11 @@
       "contentsUnavailable": "内容搜索的范围是工作区。请返回工作区根目录后使用。",
       "thisFolder": "此文件夹",
       "enter": "浏览主机文件系统",
-      "runtimeFileOutsideWorkspace": "此远程服务器暂时无法打开工作区之外的文件。",
       "folderOpenFailed": "无法打开此文件夹：{{error}}",
       "unsupportedEntry": "无法打开此项目。",
       "entryMissing": "此项目已不存在。",
       "entryUnverifiable": "无法访问此项目：{{error}}",
-      "unavailableRuntimeRemote": "此服务器通过 SSH 访问的工作区不支持浏览主机",
-      "unavailableClient": "此客户端不支持浏览主机",
-      "unavailableUnresolved": "确定工作区所在主机后即可浏览主机"
+      "unavailable": "此工作区不支持浏览主机"
     }
   },
   "sparsePreset": {

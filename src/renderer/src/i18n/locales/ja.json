@@ -18516,14 +18516,11 @@
       "contentsUnavailable": "内容検索はワークスペースが対象です。使用するにはワークスペースのルートに戻ってください。",
       "thisFolder": "このフォルダー",
       "enter": "ホストのファイルシステムを参照",
-      "runtimeFileOutsideWorkspace": "このリモートサーバーでは、ワークスペース外のファイルはまだ開けません。",
       "folderOpenFailed": "このフォルダーを開けませんでした: {{error}}",
       "unsupportedEntry": "この項目は開けません。",
       "entryMissing": "この項目はもう存在しません。",
       "entryUnverifiable": "この項目にアクセスできませんでした: {{error}}",
-      "unavailableRuntimeRemote": "このサーバーが SSH 経由で接続するワークスペースでは、ホストの参照は使用できません",
-      "unavailableClient": "このクライアントではホストの参照は使用できません",
-      "unavailableUnresolved": "ワークスペースのホストが確定すると、ホストを参照できるようになります"
+      "unavailable": "このワークスペースではホストの参照は使用できません"
     }
   },
   "sparsePreset": {

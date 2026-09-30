@@ -26,10 +26,6 @@ vi.mock('./file-explorer-host-open', () => ({ openHostFile: openHostFileMock }))
 const { toastErrorMock } = vi.hoisted(() => ({ toastErrorMock: vi.fn() }))
 vi.mock('sonner', () => ({ toast: { error: toastErrorMock } }))
 
-function dirEntry(name: string) {
-  return { name, isDirectory: true, isSymlink: false }
-}
-
 function listingFor(path: string, flavor: 'posix' | 'win32' = 'posix'): HostDirectoryListing {
   return { resolvedPath: path, entries: [], pathFlavor: flavor }
 }
@@ -42,6 +38,7 @@ async function flush(): Promise<void> {
 
 type Props = {
   active: boolean
+  visit?: string
   source: HostBrowseSource | null
   worktreePath: string
 }
@@ -50,7 +47,12 @@ let root: Root
 let latest: FileExplorerHostBrowser
 
 function Harness(props: Props): null {
-  latest = useFileExplorerHostBrowser({ ...props, worktreeId: 'wt-1' })
+  const { active, visit = '1', ...rest } = props
+  latest = useFileExplorerHostBrowser({
+    ...rest,
+    visitKey: active ? visit : null,
+    worktreeId: 'wt-1'
+  })
   return null
 }
 
@@ -182,16 +184,15 @@ describe('useFileExplorerHostBrowser', () => {
     )
   })
 
-  it('returns to the workspace root after leaving and re-entering Host mode', async () => {
+  it('starts each new visit at the workspace root', async () => {
     const props = { source: local, worktreePath: '/home/allen/codes' }
-    await render({ active: true, ...props })
+    await render({ active: true, visit: '1', ...props })
     await run(() => latest.navigateUp())
 
-    await render({ active: false, ...props })
+    await render({ active: false, visit: '1', ...props })
     expect(latest.listing).toBeNull()
 
-    await run(() => latest.reset())
-    await render({ active: true, ...props })
+    await render({ active: true, visit: '2', ...props })
     expect(latest.listing?.resolvedPath).toBe('/home/allen/codes')
   })
 
@@ -256,41 +257,5 @@ describe('useFileExplorerHostBrowser', () => {
     } finally {
       vi.useRealTimers()
     }
-  })
-
-  it('keeps the visited folder on reactivation and revalidates it in the background', async () => {
-    const props = { source: local, worktreePath: '/home/allen/codes' }
-    await render({ active: true, ...props })
-    await run(() => latest.navigateUp())
-    await render({ active: false, ...props })
-    const calls = fetchListingMock.mock.calls.length
-    let release: (listing: HostDirectoryListing) => void = () => {}
-    fetchListingMock.mockImplementationOnce(
-      () => new Promise<HostDirectoryListing>((resolve) => (release = resolve))
-    )
-
-    await render({ active: true, ...props })
-
-    expect(fetchListingMock.mock.calls.length).toBe(calls + 1)
-    expect(fetchListingMock).toHaveBeenLastCalledWith(local, '/home/allen')
-    expect(latest.listing?.resolvedPath).toBe('/home/allen')
-    await run(() =>
-      release({ resolvedPath: '/home/allen', entries: [dirEntry('fresh')], pathFlavor: 'posix' })
-    )
-    expect(latest.listing?.entries.map((entry) => entry.name)).toEqual(['fresh'])
-  })
-
-  it('reissues a navigation that deactivation interrupted', async () => {
-    const props = { source: local, worktreePath: '/home/allen/codes' }
-    await render({ active: true, ...props })
-    fetchListingMock.mockImplementationOnce(() => new Promise<HostDirectoryListing>(() => {}))
-    await run(() => latest.navigate('/slow'))
-
-    await render({ active: false, ...props })
-    await render({ active: true, ...props })
-
-    expect(fetchListingMock).toHaveBeenLastCalledWith(local, '/slow')
-    expect(latest.listing?.resolvedPath).toBe('/slow')
-    expect(latest.loading).toBe(false)
   })
 })

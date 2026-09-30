@@ -18550,14 +18550,11 @@
       "contentsUnavailable": "Contents search covers the workspace. Return to the workspace root to use it.",
       "thisFolder": "this folder",
       "enter": "Browse host filesystem",
-      "runtimeFileOutsideWorkspace": "Files outside the workspace cannot be opened on this remote server yet.",
       "folderOpenFailed": "Could not open this folder: {{error}}",
       "unsupportedEntry": "This item cannot be opened.",
       "entryMissing": "This item no longer exists.",
       "entryUnverifiable": "Could not reach this item: {{error}}",
-      "unavailableRuntimeRemote": "Host browsing is not available for workspaces this server reaches over SSH",
-      "unavailableClient": "Host browsing is not available in this client",
-      "unavailableUnresolved": "Host browsing is available once the workspace host is known"
+      "unavailable": "Host browsing is not available for this workspace"
     }
   },
   "sparsePreset": {

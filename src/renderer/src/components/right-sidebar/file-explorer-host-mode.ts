@@ -1,7 +1,5 @@
-import { getRelativePathInsideRoot, joinPath, normalizeRelativePath } from '@/lib/path'
-import { browseRuntimeServerDirectory } from '@/runtime/runtime-server-directory-browser'
+import { joinPath, normalizeRelativePath } from '@/lib/path'
 import { filterEntries } from '../sidebar/remote-file-browser-helpers'
-import { parseExecutionHostId } from '../../../../shared/execution-host'
 import type {
   DirEntry,
   HostBrowseEntryResolution,
@@ -9,147 +7,82 @@ import type {
 } from '../../../../shared/filesystem-entry-types'
 import type { FileExplorerOperationOwner } from './file-explorer-types'
 
-export type HostBrowseSource =
-  | { kind: 'local' }
-  | { kind: 'ssh'; connectionId: string }
-  | { kind: 'runtime'; environmentId: string }
+export type HostBrowseSource = { kind: 'local' } | { kind: 'ssh'; connectionId: string }
 
-export type HostBrowseUnavailableReason =
-  | 'unresolved'
-  | 'unsupported-client'
-  | 'runtime-remote-host'
-
-export type HostBrowseAvailability =
-  | { available: true; source: HostBrowseSource }
-  | { available: false; reason: HostBrowseUnavailableReason }
-
-export function getHostBrowseAvailability(
+/** Null when Host mode cannot browse this workspace's host from this client. */
+export function getHostBrowseSource(
   owner: FileExplorerOperationOwner,
   hasDesktopHostBrowse: boolean
-): HostBrowseAvailability {
-  switch (owner.kind) {
-    case 'local':
-      return hasDesktopHostBrowse
-        ? { available: true, source: { kind: 'local' } }
-        : { available: false, reason: 'unsupported-client' }
-    case 'ssh':
-      // Why: the web client stubs ssh.browseDir with an empty listing and has no entry resolver.
-      return hasDesktopHostBrowse
-        ? { available: true, source: { kind: 'ssh', connectionId: owner.connectionId } }
-        : { available: false, reason: 'unsupported-client' }
-    case 'runtime':
-      // Why: files.browseServerDir lists the runtime server's own disk, which is not the
-      // workspace host when the runtime reaches it over SSH.
-      return parseExecutionHostId(owner.executionHostId)?.kind === 'runtime'
-        ? { available: true, source: { kind: 'runtime', environmentId: owner.environmentId } }
-        : { available: false, reason: 'runtime-remote-host' }
-    case 'unresolved':
-      return { available: false, reason: 'unresolved' }
+): HostBrowseSource | null {
+  // Why: the web client stubs ssh.browseDir and has no entry resolver; paired servers are out of scope.
+  if (!hasDesktopHostBrowse) {
+    return null
   }
+  if (owner.kind === 'local') {
+    return { kind: 'local' }
+  }
+  return owner.kind === 'ssh' ? { kind: 'ssh', connectionId: owner.connectionId } : null
+}
+
+function requireDesktopFs(): Required<
+  Pick<Window['api']['fs'], 'browseHostDir' | 'resolveHostBrowseEntry'>
+> {
+  const { browseHostDir, resolveHostBrowseEntry } = window.api.fs
+  if (!browseHostDir || !resolveHostBrowseEntry) {
+    throw new Error('Host browsing is not available in this client')
+  }
+  return { browseHostDir, resolveHostBrowseEntry }
 }
 
 export async function fetchHostDirectoryListing(
   source: HostBrowseSource,
   dirPath: string
 ): Promise<HostDirectoryListing> {
-  switch (source.kind) {
-    case 'local': {
-      const browseHostDir = window.api.fs.browseHostDir
-      if (!browseHostDir) {
-        throw new Error('Host browsing is not available in this client')
-      }
-      return browseHostDir({ dirPath })
-    }
-    case 'ssh': {
-      const listing = await window.api.ssh.browseDir({ targetId: source.connectionId, dirPath })
-      // Why: `ls -p` cannot mark symlinks; non-directories are classified on click instead.
-      return {
-        ...listing,
-        entries: listing.entries.map((entry) => ({ ...entry, isSymlink: false }))
-      }
-    }
-    case 'runtime':
-      return browseRuntimeServerDirectory(source.environmentId, dirPath)
+  if (source.kind === 'local') {
+    return requireDesktopFs().browseHostDir({ dirPath })
   }
+  const listing = await window.api.ssh.browseDir({ targetId: source.connectionId, dirPath })
+  // Why: `ls -p` cannot mark symlinks; non-directories are classified on click instead.
+  return { ...listing, entries: listing.entries.map((entry) => ({ ...entry, isSymlink: false })) }
 }
 
-const RUNTIME_NOT_A_DIRECTORY_RE = /is not a directory/
-
-export async function resolveHostEntry(
+export function resolveHostEntry(
   source: HostBrowseSource,
   entryPath: string,
   entry: DirEntry,
   workspaceRoot: string
 ): Promise<HostBrowseEntryResolution> {
   if (entry.isDirectory) {
-    return { kind: 'directory', realPath: entryPath, workspaceRelativePath: null }
+    return Promise.resolve({ kind: 'directory', realPath: entryPath, workspaceRelativePath: null })
   }
-  switch (source.kind) {
-    case 'local':
-    case 'ssh': {
-      const resolveEntry = window.api.fs.resolveHostBrowseEntry
-      if (!resolveEntry) {
-        throw new Error('Host browsing is not available in this client')
-      }
-      return resolveEntry({
-        targetPath: entryPath,
-        workspaceRoot,
-        ...(source.kind === 'ssh' ? { connectionId: source.connectionId } : {})
-      })
-    }
-    case 'runtime': {
-      // Why: runtime listings report symlinks, so only those need a directory probe.
-      // Why: runtimes expose no realpath outside the worktree; ownership falls back to the literal path.
-      const unresolved = { realPath: entryPath, workspaceRelativePath: null }
-      if (!entry.isSymlink) {
-        return { kind: 'file', ...unresolved }
-      }
-      try {
-        await browseRuntimeServerDirectory(source.environmentId, entryPath)
-        return { kind: 'directory', ...unresolved }
-      } catch (error) {
-        if (error instanceof Error && RUNTIME_NOT_A_DIRECTORY_RE.test(error.message)) {
-          return { kind: 'file', ...unresolved }
-        }
-        throw error
-      }
-    }
-  }
+  return requireDesktopFs().resolveHostBrowseEntry({
+    targetPath: entryPath,
+    workspaceRoot,
+    ...(source.kind === 'ssh' ? { connectionId: source.connectionId } : {})
+  })
 }
 
 export type HostFileOpenPlan =
   | { kind: 'workspace'; filePath: string; relativePath: string }
   | { kind: 'external'; filePath: string }
-  | { kind: 'unsupported' }
 
+// Why: ownership follows main's canonical verdict, so a workspace symlink that leaves the
+// workspace stays read-only and one pointing in reuses the tree's tab.
 export function planHostFileOpen({
-  source,
   worktreePath,
   entryPath,
   workspaceRelativePath
 }: {
-  source: HostBrowseSource
   worktreePath: string
   entryPath: string
   workspaceRelativePath: string | null
 }): HostFileOpenPlan {
-  // Why: local/SSH ownership follows main's canonical verdict, so a workspace symlink that
-  // leaves the workspace stays read-only and one pointing in reuses the tree's tab. Runtimes
-  // expose no realpath outside the worktree, so they fall back to the literal path.
-  const relativePath =
-    source.kind === 'runtime'
-      ? getRelativePathInsideRoot(entryPath, worktreePath)
-      : workspaceRelativePath
-  if (relativePath) {
-    return {
-      kind: 'workspace',
-      filePath: joinPath(worktreePath, relativePath),
-      relativePath: normalizeRelativePath(relativePath)
-    }
-  }
-  // Why: runtime file RPCs reject paths outside the owning worktree.
-  return source.kind === 'runtime'
-    ? { kind: 'unsupported' }
+  return workspaceRelativePath
+    ? {
+        kind: 'workspace',
+        filePath: joinPath(worktreePath, workspaceRelativePath),
+        relativePath: normalizeRelativePath(workspaceRelativePath)
+      }
     : { kind: 'external', filePath: entryPath }
 }
 

@@ -27,14 +27,14 @@ vi.mock('./file-explorer-operation-owner', () => ({
   getFileExplorerOperationOwnerFromState: () => ({ kind: 'local' })
 }))
 vi.mock('./use-file-explorer-host-browser', () => ({
-  useFileExplorerHostBrowser: () => ({ reset: () => {} })
+  useFileExplorerHostBrowser: () => ({})
 }))
 
 let root: Root
 let latest: FileExplorerHostMode
 
-function Harness(): null {
-  latest = useFileExplorerHostMode({ activeWorktreeId: 'wt-1', worktreePath: '/repo' })
+function Harness({ worktreeId = 'wt-1' }: { worktreeId?: string }): null {
+  latest = useFileExplorerHostMode({ activeWorktreeId: worktreeId, worktreePath: '/repo' })
   return null
 }
 
@@ -86,5 +86,16 @@ describe('useFileExplorerHostMode', () => {
     )
 
     expect(latest.active).toBe(true)
+  })
+
+  it('ends Host mode when the user leaves the workspace, even after coming back', async () => {
+    await act(async () => latest.enter())
+    expect(latest.active).toBe(true)
+
+    await act(async () => root.render(<Harness worktreeId="wt-2" />))
+    expect(latest.active).toBe(false)
+
+    await act(async () => root.render(<Harness worktreeId="wt-1" />))
+    expect(latest.active).toBe(false)
   })
 })
