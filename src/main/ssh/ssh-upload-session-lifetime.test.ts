@@ -191,3 +191,32 @@ it('does not let stale factory callbacks reuse the held-session admission scope'
   session.close()
   await fence.drain(signal())
 })
+
+it('forwards removeCreatedEntry through the session lifetime', async () => {
+  const ledger = new SshConnectionWorkLedger()
+  const removed = Promise.withResolvers<void>()
+  const underlying: FileUploadSession = {
+    ...makeSession(),
+    removeCreatedEntry: vi.fn(() => removed.promise)
+  }
+  const session = await openTrackedSshUploadSession(ledger, async () => underlying)
+
+  const removing = session.removeCreatedEntry?.('/r/new', 'directory')
+  session.close()
+  const fence = ledger.fenceForReset()
+  // The pending removal is tracked work, so the fence cannot drain until it settles.
+  expect(fence.assertDrained).toThrow('ssh_connection_work_not_drained')
+  removed.resolve()
+  await removing
+  await fence.drain(signal())
+  expect(underlying.removeCreatedEntry).toHaveBeenCalledWith('/r/new', 'directory')
+})
+
+it('offers no removeCreatedEntry when the underlying session has none', async () => {
+  const ledger = new SshConnectionWorkLedger()
+  const session = await openTrackedSshUploadSession(ledger, async () => makeSession())
+
+  // Why: a stub would hide the Windows fallback, which deletes files by path and keeps folders.
+  expect(session).not.toHaveProperty('removeCreatedEntry')
+  session.close()
+})
