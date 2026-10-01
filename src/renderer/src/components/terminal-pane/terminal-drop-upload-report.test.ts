@@ -98,6 +98,26 @@ describe('reportTerminalDropUploadSkipsAndFailures', () => {
   })
 })
 
+describe('reportTerminalDropUploadSkipsAndFailures leftovers', () => {
+  it('names what a failure left on the host after the workspace', () => {
+    vi.mocked(toast.error).mockClear()
+    reportTerminalDropUploadSkipsAndFailures(
+      [],
+      [
+        { reason: 'Upload cancelled; 3 partial items left under /r/out' },
+        { reason: 'Upload cancelled; partial upload left at /r/a.bin' },
+        { reason: 'disk full' }
+      ],
+      'Dropped into ux-polish'
+    )
+
+    expect(vi.mocked(toast.error).mock.calls[0]?.[1]).toEqual({
+      description:
+        'Dropped into ux-polish\nUpload cancelled; 3 partial items left under /r/out (+1 more)'
+    })
+  })
+})
+
 describe('failuresToReport', () => {
   const cancelled = new Set(['/a', '/b'])
   const isCancelled = (item: { sourcePath: string }): boolean => cancelled.has(item.sourcePath)

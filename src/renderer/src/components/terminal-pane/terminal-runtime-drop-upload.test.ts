@@ -192,6 +192,9 @@ describe('uploadRuntimeDropPaths panel scope', () => {
     // The scoped panel closed unseen, so this toast is the only notice of the leftover.
     expect(getTransferSession('session-1')).toBeUndefined()
     expect(toast.error).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(toast.error).mock.calls[0]?.[1]).toEqual({
+      description: expect.stringContaining('partial upload left at /srv/a/.orca/drops/clip.mp4')
+    })
     vi.unstubAllGlobals()
   })
 

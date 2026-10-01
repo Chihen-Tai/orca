@@ -47,13 +47,17 @@ export function reportTerminalDropUploadSkipsAndFailures(
   }
   if (failed.length > 0) {
     const noun = failed.length === 1 ? 'file' : 'files'
+    // Why: main words the leftover itself and the row may already be gone, so show it as-is.
+    const leftovers = failed.map((item) => item.reason).filter(hasUploadLeftovers)
+    const leftoverNote =
+      leftovers.length > 1 ? `${leftovers[0]} (+${leftovers.length - 1} more)` : leftovers[0]
     toast.error(
       translate(
         'auto.components.terminal.pane.terminal.drop.handler.1e072f611e',
         'Failed to upload {{value0}} {{value1}}.',
         { value0: failed.length, value1: noun }
       ),
-      { description: workspaceDescription }
+      { description: [workspaceDescription, leftoverNote].filter(Boolean).join('\n') || undefined }
     )
   }
 }
