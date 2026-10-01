@@ -8,7 +8,7 @@ export type RemoteDownloadProgress = {
 
 export type RemoteDownloadTransferObserver = {
   signal?: AbortSignal
-  /** Reported once a folder's size is known, before any bytes move. */
+  /** Reported once a folder's size is known, which may be mid-transfer; never after it ends. */
   onTotalBytes?: (bytes: number) => void
   onBytesTransferred?: (bytes: number) => void
   onFileCompleted?: () => void
