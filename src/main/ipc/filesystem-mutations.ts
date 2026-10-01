@@ -330,7 +330,7 @@ export function registerFilesystemMutationHandlers(store: Store): void {
       })
       const resolvedPaths: string[] = []
       const skipped: { sourcePath: string; reason: ImportSkipReason }[] = []
-      const failed: { sourcePath: string; reason: string }[] = []
+      const failed: ResolveDroppedPathsResult['failed'] = []
       // Iterate in input order so injected paths align with the user's drop order.
       for (const r of results) {
         if (r.status === 'imported') {
@@ -338,7 +338,11 @@ export function registerFilesystemMutationHandlers(store: Store): void {
         } else if (r.status === 'skipped') {
           skipped.push({ sourcePath: r.sourcePath, reason: r.reason })
         } else {
-          failed.push({ sourcePath: r.sourcePath, reason: r.reason })
+          failed.push({
+            sourcePath: r.sourcePath,
+            reason: r.reason,
+            ...(r.cancelled ? { cancelled: true } : {})
+          })
         }
       }
       return { resolvedPaths, skipped, failed }

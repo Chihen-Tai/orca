@@ -60,7 +60,7 @@ describe('createUploadProgressPanel', () => {
     expect(panel.settle).toHaveBeenCalledTimes(1)
   })
 
-  it('cancels a row in main and remembers its source so the failure is not reported', () => {
+  it('cancels a row in main and tells the import which row was cancelled', () => {
     const upload = createUploadProgressPanel()
     upload.progress.onStart([row])
     const cancel = openPanel.mock.calls[0][2]
@@ -69,7 +69,8 @@ describe('createUploadProgressPanel', () => {
     expect(cancelRuntimeUpload).toHaveBeenCalledWith({ uploadId: 'u1' })
     // Why: the click only asks; the result decides the final state.
     expect(panel.markCancelling).toHaveBeenCalledWith('u1')
-    expect(upload.cancelledSourcePaths.has('/local/videos')).toBe(true)
+    expect(upload.progress.isCancelled?.('u1')).toBe(true)
+    expect(upload.progress.isCancelled?.('u2')).toBe(false)
   })
 
   it('handles a failed cancel request and leaves the row cancelling', () => {

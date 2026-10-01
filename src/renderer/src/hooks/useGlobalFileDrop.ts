@@ -138,7 +138,8 @@ export function useGlobalFileDrop(): void {
             if (
               results.some(
                 (result) =>
-                  result.status !== 'imported' && !panel.cancelledSourcePaths.has(result.sourcePath)
+                  result.status === 'skipped' ||
+                  (result.status === 'failed' && result.cancelled !== true)
               )
             ) {
               toast.error(

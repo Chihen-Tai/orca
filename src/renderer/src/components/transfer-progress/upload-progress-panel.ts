@@ -7,8 +7,6 @@ import {
 
 export type UploadProgressPanel = {
   progress: RuntimeImportProgressHandlers
-  /** Sources the user cancelled, whose resulting failure is not an error to report. */
-  cancelledSourcePaths: ReadonlySet<string>
   /** Tears the panel down for a flow that failed before it could settle. */
   close: () => void
 }
@@ -16,16 +14,10 @@ export type UploadProgressPanel = {
 /** Import progress handlers that drive one upload panel; it opens once rows exist. */
 export function createUploadProgressPanel(scope?: TransferPanelScope): UploadProgressPanel {
   let panel: TransferProgressPanelHandle | null = null
-  const cancelledSourcePaths = new Set<string>()
   // Why: per row, since a path dropped twice is two rows and can be cancelled once.
   const cancelledUploadIds = new Set<string>()
-  const sourcePathsByUploadId = new Map<string, string>()
   const cancelRow = (uploadId: string): void => {
     cancelledUploadIds.add(uploadId)
-    const sourcePath = sourcePathsByUploadId.get(uploadId)
-    if (sourcePath) {
-      cancelledSourcePaths.add(sourcePath)
-    }
     panel?.markCancelling(uploadId)
     void window.api.fs.cancelRuntimeUpload({ uploadId }).catch(() => {})
   }
@@ -35,9 +27,6 @@ export function createUploadProgressPanel(scope?: TransferPanelScope): UploadPro
         // Why: a drop that stages nothing never flashes an empty panel.
         if (rows.length === 0) {
           return
-        }
-        for (const row of rows) {
-          sourcePathsByUploadId.set(row.uploadId, row.sourcePath)
         }
         panel = openTransferProgressPanel(
           'upload',
@@ -69,7 +58,6 @@ export function createUploadProgressPanel(scope?: TransferPanelScope): UploadPro
       isCancelled: (uploadId) => cancelledUploadIds.has(uploadId),
       onFinish: () => panel?.settle()
     },
-    cancelledSourcePaths,
     close: () => panel?.close()
   }
 }

@@ -345,6 +345,7 @@ describe('SSH import cancel invariants', () => {
       status: 'failed',
       reason: 'Remote connection dropped; partial upload left at /remote/big.bin'
     })
+    expect(results[0]).not.toHaveProperty('cancelled')
     // Why: loss of contact is not the user's cancel; the partial stays for the user to judge.
     expect(remote.entries.get('/remote/big.bin')).toMatchObject({ content: 'aaaa' })
   })

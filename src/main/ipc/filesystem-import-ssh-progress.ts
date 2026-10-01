@@ -148,7 +148,7 @@ export async function importSshSourceWithProgress(
     measure = await measureLocalUpload(resolve(sourcePath), signal)
   } catch (error) {
     if (signal.aborted) {
-      return { sourcePath, status: 'failed', reason: describeCancelledImport([]) }
+      return { sourcePath, status: 'failed', reason: describeCancelledImport([]), cancelled: true }
     }
     throw error
   }
@@ -199,7 +199,12 @@ export async function importSshSourceWithProgress(
   if (signal.aborted) {
     // Why: covers a cancel after the last byte and an empty folder, which raise nothing.
     await ledger.rollback()
-    return { sourcePath, status: 'failed', reason: describeCancelledImport(ledger.remaining) }
+    return {
+      sourcePath,
+      status: 'failed',
+      reason: describeCancelledImport(ledger.remaining),
+      cancelled: true
+    }
   }
   if (result.status === 'failed' && ledger.remaining.length > 0) {
     // Why: a failure that is not a cancel keeps what it could not (or, on a dropped connection,

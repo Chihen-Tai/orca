@@ -219,7 +219,7 @@ async function uploadRemoteDropPaths(
     await pasteResolvedDropPaths({ ...args, paths: resolvedPaths, targetShell: args.targetShell })
     reportTerminalDropUploadSkipsAndFailures(
       skipped,
-      failuresToReport(failed, (item) => panel.cancelledSourcePaths.has(item.sourcePath)),
+      failuresToReport(failed, (item) => item.cancelled === true),
       describeDropWorkspaceIfInactive(args.worktreeId, args.worktreePath)
     )
   } catch (err) {

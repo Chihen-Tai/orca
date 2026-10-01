@@ -236,7 +236,12 @@ describe('SSH import progress', () => {
       }
     )
 
-    expect(result).toEqual({ sourcePath: source, status: 'failed', reason: 'Upload cancelled' })
+    expect(result).toEqual({
+      sourcePath: source,
+      status: 'failed',
+      reason: 'Upload cancelled',
+      cancelled: true
+    })
     expect(session.removeCreatedEntry.mock.calls).toEqual([
       ['/r/src/a', 'file'],
       ['/r/src', 'directory']
@@ -272,7 +277,12 @@ describe('SSH import progress', () => {
       return imported(source, '/r/a', 'file')
     })
 
-    expect(result).toEqual({ sourcePath: source, status: 'failed', reason: 'Upload cancelled' })
+    expect(result).toEqual({
+      sourcePath: source,
+      status: 'failed',
+      reason: 'Upload cancelled',
+      cancelled: true
+    })
     expect(session.removeCreatedEntry).toHaveBeenCalledWith('/r/a', 'file')
   })
 
@@ -297,7 +307,8 @@ describe('SSH import progress', () => {
     expect(result).toEqual({
       sourcePath: source,
       status: 'failed',
-      reason: 'Upload cancelled; partial upload left at /r/src'
+      reason: 'Upload cancelled; partial upload left at /r/src',
+      cancelled: true
     })
   })
 
@@ -338,7 +349,12 @@ describe('SSH import progress', () => {
 
     const { result } = await runImport(source, session, run)
 
-    expect(result).toEqual({ sourcePath: source, status: 'failed', reason: 'Upload cancelled' })
+    expect(result).toEqual({
+      sourcePath: source,
+      status: 'failed',
+      reason: 'Upload cancelled',
+      cancelled: true
+    })
     expect(run).not.toHaveBeenCalled()
   })
 

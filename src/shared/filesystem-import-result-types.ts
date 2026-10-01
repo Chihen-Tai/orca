@@ -8,7 +8,8 @@ export type ImportSkipReason = 'missing' | 'symlink' | 'permission-denied' | 'un
 export type ResolveDroppedPathsResult = {
   resolvedPaths: string[]
   skipped: { sourcePath: string; reason: ImportSkipReason }[]
-  failed: { sourcePath: string; reason: string }[]
+  /** `cancelled` marks a source the user's cancel stopped, so it is not reported as an error. */
+  failed: { sourcePath: string; reason: string; cancelled?: boolean }[]
 }
 
 export type ImportItemResult =

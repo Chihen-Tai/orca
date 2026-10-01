@@ -114,9 +114,7 @@ export function useFileExplorerImport({
           const imported = results.filter((r) => r.status === 'imported')
           const skipped = results.filter((r) => r.status === 'skipped')
           // Why: a cancel is the user's own decision, not a failure to report back.
-          const failed = results.filter(
-            (r) => r.status === 'failed' && !panel.cancelledSourcePaths.has(r.sourcePath)
-          )
+          const failed = results.filter((r) => r.status === 'failed' && r.cancelled !== true)
 
           if (
             imported.length > 0 &&
