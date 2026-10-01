@@ -113,7 +113,7 @@ describe('reportTerminalDropUploadSkipsAndFailures leftovers', () => {
 
     expect(vi.mocked(toast.error).mock.calls[0]?.[1]).toEqual({
       description:
-        'Dropped into ux-polish\nUpload cancelled; 3 partial items left under /r/out (+1 more)'
+        'Dropped into ux-polish. Upload cancelled; 3 partial items left under /r/out (+1 more)'
     })
   })
 })
