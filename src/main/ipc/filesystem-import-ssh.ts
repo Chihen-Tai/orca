@@ -79,7 +79,7 @@ export async function importExternalPathsSsh(
         provider,
         uploadSession,
         options?.assertCurrent,
-        (session, trackedProvider) =>
+        (session, trackedProvider, onFailure) =>
           importOneSourceSsh(
             trackedProvider,
             session,
@@ -87,7 +87,8 @@ export async function importExternalPathsSsh(
             destDir,
             reservedNames,
             remotePathFlavor,
-            options?.assertCurrent
+            options?.assertCurrent,
+            onFailure
           )
       )
       results.push(result)
@@ -113,7 +114,9 @@ async function importOneSourceSsh(
   destDir: string,
   reservedNames: Set<string>,
   remotePathFlavor: RemotePathFlavor,
-  assertCurrent?: () => void
+  assertCurrent?: () => void,
+  // Why: runs before any cleanup, so a cancel during that cleanup cannot pass the failure off as its own.
+  onFailure?: () => void
 ): Promise<ImportItemResult> {
   const resolvedSource = resolve(sourcePath)
 
@@ -207,6 +210,7 @@ async function importOneSourceSsh(
       renamed
     }
   } catch (error) {
+    onFailure?.()
     if (createdDestDir) {
       // Why: local directory imports roll back partial output; SSH imports
       // should not leave the no-clobber root after a nested upload failure.

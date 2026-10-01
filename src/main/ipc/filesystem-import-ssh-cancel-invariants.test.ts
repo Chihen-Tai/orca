@@ -53,6 +53,7 @@ class FakeRemote {
   // Why: lets a test act (cancel, disconnect) at an exact point inside a transfer.
   beforeChunk: (remotePath: string, chunkIndex: number) => Promise<void> | void = () => {}
   beforeOpen: (remotePath: string) => void = () => {}
+  beforeRemove: (remotePath: string) => void = () => {}
   afterUpload: (remotePath: string) => void = () => {}
   // Why: lets a test fail the identity read taken right after a create.
   failNextLstat = new Set<string>()
@@ -65,6 +66,7 @@ class FakeRemote {
     const uploadSession: FileUploadSession = {
       uploadFile: (local, remote, options) => this.upload(owner, local, remote, options),
       removeCreatedEntry: async (path, kind) => {
+        this.beforeRemove(path)
         const entry = this.entries.get(path)
         // Why: like SFTP, unlink removes any non-directory node (a symlink too); rmdir only dirs.
         if (!entry || (kind === 'directory') !== (entry.kind === 'directory')) {
@@ -361,6 +363,24 @@ describe('SSH import cancel invariants', () => {
     expect(results[0]).toMatchObject({ status: 'failed' })
     expect(remote.beforeOpen).not.toHaveBeenCalled()
     expect(remote.has('/remote/early.txt')).toBe(false)
+  })
+
+  it('reports a real folder failure even when cancel is clicked during its cleanup', async () => {
+    const source = join(await localTree({ 'out/a.txt': 'aaaa', 'out/b.txt': 'bbbb' }), 'out')
+    registerSshFilesystemProvider('ssh-a', remote.provider('a'))
+    remote.beforeChunk = (path) => {
+      if (path.endsWith('b.txt')) {
+        throw new Error('No space left on device')
+      }
+    }
+    // The user cancels once the failed folder starts being removed.
+    remote.beforeRemove = () => cancel('u-full')
+
+    const { results } = await importWithProgress('ssh-a', source, 'u-full')
+
+    expect(results[0]).toMatchObject({ status: 'failed', reason: 'No space left on device' })
+    expect(results[0]).not.toHaveProperty('cancelled')
+    expect(remote.has('/remote/out')).toBe(false)
   })
 
   it('never deletes an existing FIFO at the destination when cancel lands', async () => {

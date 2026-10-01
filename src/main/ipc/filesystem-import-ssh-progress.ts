@@ -129,7 +129,11 @@ export async function importSshSourceWithProgress(
   provider: IFilesystemProvider,
   uploadSession: FileUploadSession,
   assertCurrent: (() => void) | undefined,
-  run: (session: FileUploadSession, provider: IFilesystemProvider) => Promise<ImportItemResult>
+  run: (
+    session: FileUploadSession,
+    provider: IFilesystemProvider,
+    onFailure?: () => void
+  ) => Promise<ImportItemResult>
 ): Promise<ImportItemResult> {
   const uploadId = target?.uploadIdsBySourcePath[sourcePath]
   const signal = cancellations.signalFor(sourcePath)
@@ -162,6 +166,8 @@ export async function importSshSourceWithProgress(
   report(0)
 
   const ledger = new SshImportCreatedLedger(provider, uploadSession, assertCurrent)
+  // Why: a cancel clicked while a real failure is already unwinding must not relabel it.
+  let failedBeforeCancel = false
   const trackedSession: FileUploadSession = {
     uploadFile: async (localPath, remotePath, options) => {
       signal.throwIfAborted()
@@ -195,10 +201,15 @@ export async function importSshSourceWithProgress(
     close: () => {}
   }
 
-  const result = await run(trackedSession, createLedgerTrackedProvider(provider, ledger))
+  const result = await run(trackedSession, createLedgerTrackedProvider(provider, ledger), () => {
+    failedBeforeCancel ||= !signal.aborted
+  })
   if (signal.aborted) {
     // Why: covers a cancel after the last byte and an empty folder, which raise nothing.
     await ledger.rollback()
+    if (result.status === 'failed' && failedBeforeCancel) {
+      return { ...result, reason: withUploadLeftovers(result.reason, ledger.remaining) }
+    }
     return {
       sourcePath,
       status: 'failed',

@@ -89,7 +89,11 @@ describe('SSH import progress', () => {
   async function runImport(
     sourcePath: string,
     session: ReturnType<typeof createSession>,
-    run: (tracked: FileUploadSession, provider: IFilesystemProvider) => Promise<ImportItemResult>,
+    run: (
+      tracked: FileUploadSession,
+      provider: IFilesystemProvider,
+      onFailure?: () => void
+    ) => Promise<ImportItemResult>,
     options: { sender?: ReturnType<typeof createSender>; assertCurrent?: () => void } = {}
   ) {
     const sender = options.sender ?? createSender()
@@ -394,6 +398,60 @@ describe('SSH import progress', () => {
       sourcePath: source,
       status: 'failed',
       reason: 'Remote connection dropped; 2 partial items left under /r/src'
+    })
+  })
+
+  // Why: runs mirror importOneSourceSsh, whose catch reports the failure before any cleanup.
+  it('keeps a real failure when cancel is clicked while it is being cleaned up', async () => {
+    const source = await createSource()
+    const session = createSession(async (_local, _remote, options: UploadOptions) => {
+      options?.onRemoteCreated?.()
+      throw new Error('No space left on device')
+    })
+
+    const { result } = await runImport(source, session, async (tracked, provider, onFailure) => {
+      await provider.createDirNoClobber('/r/src')
+      try {
+        await tracked.uploadFile('/l/a', '/r/src/a', { exclusive: true })
+      } catch {
+        onFailure?.()
+        // The user cancels while the failed folder is being removed.
+        cancelRuntimeUpload(SCOPED_ID)
+        await provider.deletePath('/r/src', true)
+      }
+      return { sourcePath: source, status: 'failed', reason: 'No space left on device' }
+    })
+
+    expect(result).toEqual({
+      sourcePath: source,
+      status: 'failed',
+      reason: 'No space left on device'
+    })
+    expect(session.removeCreatedEntry).toHaveBeenCalledWith('/r/src', 'directory')
+  })
+
+  it('still reports a cancel when the failure came from the cancel itself', async () => {
+    const source = await createSource()
+    const session = createSession(async (_local, _remote, options: UploadOptions) => {
+      options?.onRemoteCreated?.()
+      cancelRuntimeUpload(SCOPED_ID)
+      throw new Error('This operation was aborted')
+    })
+
+    const { result } = await runImport(source, session, async (tracked, _provider, onFailure) => {
+      try {
+        await tracked.uploadFile('/l/a', '/r/a', { exclusive: true })
+      } catch {
+        onFailure?.()
+      }
+      return { sourcePath: source, status: 'failed', reason: 'This operation was aborted' }
+    })
+
+    expect(result).toEqual({
+      sourcePath: source,
+      status: 'failed',
+      reason: 'Upload cancelled',
+      cancelled: true
     })
   })
 })
