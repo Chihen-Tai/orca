@@ -9,7 +9,10 @@ import { translate } from '@/i18n/i18n'
 import { isWindowsAbsolutePathLike } from '../../../../shared/cross-platform-path'
 import { isWslUncPath, parseWslUncPath } from '../../../../shared/wsl-paths'
 import type { PtyTransport } from './pty-transport'
-import { reportTerminalDropUploadSkipsAndFailures } from './terminal-drop-upload-report'
+import {
+  failuresToReport,
+  reportTerminalDropUploadSkipsAndFailures
+} from './terminal-drop-upload-report'
 import { describeDropWorkspaceIfInactive } from './terminal-drop-workspace-label'
 import type { NativeDropFlowArgs } from './terminal-drop-paste'
 import { pasteResolvedDropPaths } from './terminal-drop-paste'
@@ -216,8 +219,7 @@ async function uploadRemoteDropPaths(
     await pasteResolvedDropPaths({ ...args, paths: resolvedPaths, targetShell: args.targetShell })
     reportTerminalDropUploadSkipsAndFailures(
       skipped,
-      // Why: a cancel is the user's own decision, not a failure to report back.
-      failed.filter((item) => !panel.cancelledSourcePaths.has(item.sourcePath)),
+      failuresToReport(failed, (item) => panel.cancelledSourcePaths.has(item.sourcePath)),
       describeDropWorkspaceIfInactive(args.worktreeId, args.worktreePath)
     )
   } catch (err) {

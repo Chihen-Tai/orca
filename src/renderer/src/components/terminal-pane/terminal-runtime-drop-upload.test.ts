@@ -169,6 +169,32 @@ describe('uploadRuntimeDropPaths panel scope', () => {
     expect(mocks.store.listeners.size).toBe(0)
   })
 
+  it('reports a cancel that left files behind after the user switched away', async () => {
+    vi.stubGlobal('window', { api: { fs: { cancelRuntimeUpload: vi.fn(async () => {}) } } })
+    mocks.runImport.mockImplementation(async (progress: RuntimeImportProgressHandlers) => {
+      progress.onStart([row])
+      cancelPanelRow(row.uploadId)
+      setActiveWorktree('wt-b')
+      progress.onFinish()
+      const results: ImportItemResult[] = [
+        {
+          sourcePath: row.sourcePath,
+          status: 'failed',
+          reason: 'Upload cancelled; partial upload left at /srv/a/.orca/drops/clip.mp4',
+          cancelled: true
+        }
+      ]
+      return { results }
+    })
+
+    await uploadRuntimeDropPaths(dropArgs([row.sourcePath]))
+
+    // The scoped panel closed unseen, so this toast is the only notice of the leftover.
+    expect(getTransferSession('session-1')).toBeUndefined()
+    expect(toast.error).toHaveBeenCalledTimes(1)
+    vi.unstubAllGlobals()
+  })
+
   it('still reports a failed copy when another copy of the same path was cancelled', async () => {
     vi.stubGlobal('window', { api: { fs: { cancelRuntimeUpload: vi.fn(async () => {}) } } })
     const copies = [

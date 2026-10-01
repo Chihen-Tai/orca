@@ -6,7 +6,10 @@ import { createUploadProgressPanel } from '@/components/transfer-progress/upload
 import type { NativeDropFlowArgs } from './terminal-drop-paste'
 import { pasteResolvedDropPaths } from './terminal-drop-paste'
 import { describeDropWorkspaceIfInactive } from './terminal-drop-workspace-label'
-import { reportTerminalDropUploadSkipsAndFailures } from './terminal-drop-upload-report'
+import {
+  failuresToReport,
+  reportTerminalDropUploadSkipsAndFailures
+} from './terminal-drop-upload-report'
 import {
   getTerminalTargetShellForWorktreePath,
   isTerminalDropWindowsPathLike
@@ -51,10 +54,10 @@ export async function uploadRuntimeDropPaths(
     await pasteResolvedDropPaths({ ...args, paths: importedPaths, targetShell })
     reportTerminalDropUploadSkipsAndFailures(
       results.filter((result) => result.status === 'skipped'),
-      // Why: a cancel is the user's own decision, not a failure to report back.
-      results
-        .filter((result) => result.status === 'failed')
-        .filter((result) => result.cancelled !== true),
+      failuresToReport(
+        results.filter((result) => result.status === 'failed'),
+        (result) => result.cancelled === true
+      ),
       describeDropWorkspaceIfInactive(args.worktreeId, args.worktreePath)
     )
   } catch (err) {

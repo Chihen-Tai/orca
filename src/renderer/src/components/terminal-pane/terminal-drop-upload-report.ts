@@ -1,6 +1,18 @@
 import { toast } from 'sonner'
 import { translate } from '@/i18n/i18n'
 import { describeDropSkipReason } from '@/lib/drop-skip-reason-copy'
+import { hasUploadLeftovers } from '../../../../shared/ssh-import-cancel-reason'
+
+/**
+ * A cancel is the user's own decision, not a failure to report back — unless it left files on
+ * the host. A scoped panel closes unseen once the user switches away, so this is the only notice.
+ */
+export function failuresToReport<T extends { reason: string }>(
+  failed: T[],
+  isCancelled: (item: T) => boolean
+): T[] {
+  return failed.filter((item) => !isCancelled(item) || hasUploadLeftovers(item.reason))
+}
 
 export function reportTerminalDropUploadSkipsAndFailures(
   skipped: { reason: string }[],

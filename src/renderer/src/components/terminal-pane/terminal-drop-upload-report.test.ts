@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { toast } from 'sonner'
-import { reportTerminalDropUploadSkipsAndFailures } from './terminal-drop-upload-report'
+import {
+  failuresToReport,
+  reportTerminalDropUploadSkipsAndFailures
+} from './terminal-drop-upload-report'
 
 const mocks = vi.hoisted(() => ({
   translate: vi.fn((key: string, fallback: string) => `${key}:${fallback}`)
@@ -92,5 +95,23 @@ describe('reportTerminalDropUploadSkipsAndFailures', () => {
       'Failed to upload {{value0}} {{value1}}.',
       { value0: 2, value1: 'files' }
     )
+  })
+})
+
+describe('failuresToReport', () => {
+  const cancelled = new Set(['/a', '/b'])
+  const isCancelled = (item: { sourcePath: string }): boolean => cancelled.has(item.sourcePath)
+
+  it('drops a clean cancel but keeps a cancel that left files and every real failure', () => {
+    const failed = [
+      { sourcePath: '/a', reason: 'Upload cancelled' },
+      { sourcePath: '/b', reason: 'Upload cancelled; partial upload left at /r/b.bin' },
+      { sourcePath: '/c', reason: 'disk full' }
+    ]
+
+    expect(failuresToReport(failed, isCancelled).map((item) => item.sourcePath)).toEqual([
+      '/b',
+      '/c'
+    ])
   })
 })
