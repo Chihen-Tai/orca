@@ -99,4 +99,16 @@ describe('throttleRuntimeUploadProgress', () => {
     emit({ uploadId: 'u', sentBytes: 1, totalBytes: 10 })
     expect(spy).toHaveBeenCalledTimes(1)
   })
+
+  it('keeps throttling while the total is unknown instead of treating every slice as final', () => {
+    let clock = 0
+    const { seen, emit } = collector(() => clock)
+    emit({ uploadId: 'u', sentBytes: 0, totalBytes: 0 })
+    emit({ uploadId: 'u', sentBytes: 64 * 1024, totalBytes: 0 })
+    emit({ uploadId: 'u', sentBytes: 128 * 1024, totalBytes: 0 })
+    clock = 100
+    emit({ uploadId: 'u', sentBytes: 192 * 1024, totalBytes: 0 })
+
+    expect(seen).toEqual([0, 192 * 1024])
+  })
 })

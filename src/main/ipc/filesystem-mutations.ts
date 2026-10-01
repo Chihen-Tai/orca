@@ -29,11 +29,8 @@ import {
   RUNTIME_UPLOAD_PROGRESS_CHANNEL,
   throttleRuntimeUploadProgress
 } from './runtime-upload-progress'
-import {
-  cancelRuntimeUpload,
-  forgetRuntimeUploadCancellation,
-  registerCancellableUpload
-} from './runtime-upload-cancellation'
+import { registerRuntimeUploadCancelHandlers } from './runtime-upload-cancel-ipc'
+import { registerCancellableUpload, scopeRuntimeUploadId } from './runtime-upload-cancellation'
 import type { RuntimeUploadFileStreamRequest } from '../../shared/runtime-upload-staging-contract'
 import { resolveEnvironment } from '../../shared/runtime-environment-store'
 
@@ -252,7 +249,9 @@ export function registerFilesystemMutationHandlers(store: Store): void {
             }
           })
         : null
-      const cancellation = uploadId ? registerCancellableUpload(uploadId) : null
+      const cancellation = uploadId
+        ? registerCancellableUpload(scopeRuntimeUploadId(event.sender.id, uploadId))
+        : null
       try {
         return await streamExternalFileToRuntime({
           ...request,
@@ -279,17 +278,7 @@ export function registerFilesystemMutationHandlers(store: Store): void {
     }
   )
 
-  // Why: the drop UI cancels a whole dropped source, so the id it sends is the
-  // one every file of that source streams under.
-  ipcMain.handle('fs:cancelRuntimeUpload', (_event, args: { uploadId: string }): void => {
-    cancelRuntimeUpload(args.uploadId)
-  })
-
-  // Why: ids are minted per drop, but a cancel recorded for one must not outlive
-  // it and abort a later upload that happens to reuse the id.
-  ipcMain.handle('fs:releaseRuntimeUpload', (_event, args: { uploadId: string }): void => {
-    forgetRuntimeUploadCancellation(args.uploadId)
-  })
+  registerRuntimeUploadCancelHandlers()
 
   // Why: terminal drag-and-drop resolver. Local worktrees pass paths through
   // unchanged (reference-in-place; preserves zero-latency drop). SSH worktrees

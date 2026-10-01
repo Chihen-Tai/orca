@@ -15,6 +15,11 @@ const controllers = new Map<string, AbortController>()
 // silently doing nothing.
 const cancelled = new Set<string>()
 
+/** Ids are renderer-minted, so one window must not reach another window's upload. */
+export function scopeRuntimeUploadId(senderId: number, uploadId: string): string {
+  return `${senderId}:${uploadId}`
+}
+
 /** Registers an upload so it can be cancelled; returns its release callback. */
 export function registerCancellableUpload(uploadId: string): {
   signal: AbortSignal
@@ -40,10 +45,22 @@ export function cancelRuntimeUpload(uploadId: string): void {
   controllers.get(uploadId)?.abort()
 }
 
-/** Called once a drop is finished so a reused id cannot inherit a stale cancel. */
+/**
+ * Called once a drop is finished so a reused id cannot inherit a stale cancel.
+ * A live registration keeps its abort: only its own release may end it.
+ */
 export function forgetRuntimeUploadCancellation(uploadId: string): void {
   cancelled.delete(uploadId)
-  controllers.delete(uploadId)
+}
+
+/** A gone renderer can never release its drops, so its remembered cancels go with it. */
+export function forgetRuntimeUploadCancellationsForSender(senderId: number): void {
+  const prefix = scopeRuntimeUploadId(senderId, '')
+  for (const key of cancelled) {
+    if (key.startsWith(prefix)) {
+      cancelled.delete(key)
+    }
+  }
 }
 
 export function isUploadCancelled(uploadId: string): boolean {
