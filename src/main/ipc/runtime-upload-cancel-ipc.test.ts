@@ -1,15 +1,17 @@
 import { EventEmitter } from 'node:events'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-const { handlers } = vi.hoisted(() => ({
-  handlers: new Map<string, (event: unknown, args: unknown) => unknown>()
-}))
+const handlers = new Map<
+  string,
+  (event: { sender: EventEmitter & { id: number } }, args: unknown) => unknown
+>()
 
 vi.mock('electron', () => ({
   ipcMain: {
-    handle: (channel: string, handler: (event: unknown, args: unknown) => unknown) => {
-      handlers.set(channel, handler)
-    }
+    handle: (
+      channel: string,
+      handler: (event: { sender: EventEmitter & { id: number } }, args: unknown) => unknown
+    ) => handlers.set(channel, handler)
   }
 }))
 
@@ -22,60 +24,60 @@ import {
 
 registerRuntimeUploadCancelHandlers()
 
-const windowOne = { sender: { id: 1 } }
+function renderer(id: number): EventEmitter & { id: number } {
+  return Object.assign(new EventEmitter(), { id })
+}
 
-function closableWindow(id: number) {
-  const sender = Object.assign(new EventEmitter(), { id })
-  return {
-    sender,
-    close: () => sender.emit('destroyed'),
-    reload: () => sender.emit('did-navigate')
-  }
+function invoke(channel: string, sender: EventEmitter & { id: number }, args: unknown): unknown {
+  return handlers.get(channel)!({ sender }, args)
 }
 
 afterEach(() => {
-  forgetRuntimeUploadCancellation(scopeRuntimeUploadId(1, 'u'))
+  for (const senderId of [1, 2, 3]) {
+    for (const uploadId of ['u', 'a', 'b']) {
+      forgetRuntimeUploadCancellation(scopeRuntimeUploadId(senderId, uploadId))
+    }
+  }
 })
 
 describe('runtime upload cancel IPC', () => {
-  it('records a cancel only for the window that sent it', () => {
-    handlers.get('fs:cancelRuntimeUpload')!(windowOne, { uploadId: 'u' })
+  it('records and releases a cancel only for the renderer that sent it', () => {
+    const first = renderer(1)
+    invoke('fs:cancelRuntimeUpload', first, { uploadId: 'u' })
+
     expect(isUploadCancelled(scopeRuntimeUploadId(1, 'u'))).toBe(true)
     expect(isUploadCancelled(scopeRuntimeUploadId(2, 'u'))).toBe(false)
-    expect(isUploadCancelled('u')).toBe(false)
-  })
 
-  it('releases the same window-scoped id', () => {
-    handlers.get('fs:cancelRuntimeUpload')!(windowOne, { uploadId: 'u' })
-    handlers.get('fs:releaseRuntimeUpload')!(windowOne, { uploadId: 'u' })
+    invoke('fs:releaseRuntimeUpload', first, { uploadId: 'u' })
     expect(isUploadCancelled(scopeRuntimeUploadId(1, 'u'))).toBe(false)
   })
 
-  it('ignores malformed requests instead of throwing', () => {
-    for (const args of [null, undefined, {}, { uploadId: '' }, { uploadId: 3 }]) {
-      expect(() => handlers.get('fs:cancelRuntimeUpload')!(windowOne, args)).not.toThrow()
-      expect(() => handlers.get('fs:releaseRuntimeUpload')!(windowOne, args)).not.toThrow()
+  it('rejects malformed upload ids without changing cancellation state', () => {
+    const sender = renderer(1)
+    for (const args of [
+      null,
+      undefined,
+      {},
+      { uploadId: '' },
+      { uploadId: '  ' },
+      { uploadId: 3 }
+    ]) {
+      expect(() => invoke('fs:cancelRuntimeUpload', sender, args)).not.toThrow()
+      expect(() => invoke('fs:releaseRuntimeUpload', sender, args)).not.toThrow()
     }
+
+    expect(isUploadCancelled(scopeRuntimeUploadId(1, ''))).toBe(false)
+    expect(isUploadCancelled(scopeRuntimeUploadId(1, '  '))).toBe(false)
   })
 
-  it("drops a closed window's remembered cancels, since it can never release them", () => {
-    const window = closableWindow(3)
-    handlers.get('fs:cancelRuntimeUpload')!(window, { uploadId: 'u' })
-    expect(isUploadCancelled(scopeRuntimeUploadId(3, 'u'))).toBe(true)
+  it('drops cancels when the renderer goes away and re-arms after reload', () => {
+    const sender = renderer(3)
+    invoke('fs:cancelRuntimeUpload', sender, { uploadId: 'a' })
+    sender.emit('did-navigate')
+    expect(isUploadCancelled(scopeRuntimeUploadId(3, 'a'))).toBe(false)
 
-    window.close()
-
-    expect(isUploadCancelled(scopeRuntimeUploadId(3, 'u'))).toBe(false)
-  })
-
-  it("drops a reloaded renderer's cancels and re-arms for the reloaded page", () => {
-    const window = closableWindow(4)
-    handlers.get('fs:cancelRuntimeUpload')!(window, { uploadId: 'a' })
-    window.reload()
-    expect(isUploadCancelled(scopeRuntimeUploadId(4, 'a'))).toBe(false)
-
-    handlers.get('fs:cancelRuntimeUpload')!(window, { uploadId: 'b' })
-    window.reload()
-    expect(isUploadCancelled(scopeRuntimeUploadId(4, 'b'))).toBe(false)
+    invoke('fs:cancelRuntimeUpload', sender, { uploadId: 'b' })
+    sender.emit('render-process-gone')
+    expect(isUploadCancelled(scopeRuntimeUploadId(3, 'b'))).toBe(false)
   })
 })

@@ -1,29 +1,28 @@
 import { ipcMain, type WebContents } from 'electron'
+import { abortWhenRendererGone } from './renderer-lifetime-abort'
 import {
   cancelRuntimeUpload,
   forgetRuntimeUploadCancellation,
   forgetRuntimeUploadCancellationsForSender,
   scopeRuntimeUploadId
 } from './runtime-upload-cancellation'
-import { parseTransferId } from './transfer-id'
-import { abortWhenRendererGone } from './renderer-lifetime-abort'
 
 type CancelSender = Pick<WebContents, 'id' | 'once' | 'removeListener'>
 
 const sendersWithCleanup = new WeakSet<CancelSender>()
 
 function readUploadId(args: unknown): string | undefined {
-  return args && typeof args === 'object' && 'uploadId' in args
-    ? parseTransferId(args.uploadId)
+  if (!args || typeof args !== 'object' || !('uploadId' in args)) {
+    return undefined
+  }
+  return typeof args.uploadId === 'string' && args.uploadId.trim() !== ''
+    ? args.uploadId
     : undefined
 }
 
-/**
- * A renderer that reloads or crashes can never release its drops, and it keeps the same
- * WebContents, so `destroyed` alone would strand its remembered cancels until the window closes.
- */
+/** A reloaded or gone renderer can no longer release its remembered cancels. */
 function forgetCancelsWhenRendererGoes(sender: CancelSender): void {
-  if (typeof sender.once !== 'function' || sendersWithCleanup.has(sender)) {
+  if (sendersWithCleanup.has(sender)) {
     return
   }
   sendersWithCleanup.add(sender)
@@ -34,7 +33,7 @@ function forgetCancelsWhenRendererGoes(sender: CancelSender): void {
     () => {
       lifetime.dispose()
       forgetRuntimeUploadCancellationsForSender(senderId)
-      // Why: a reloaded renderer reuses this WebContents; its next cancel re-arms cleanup.
+      // A reload reuses WebContents, so its next cancel must arm cleanup again.
       sendersWithCleanup.delete(sender)
     },
     { once: true }
@@ -42,8 +41,6 @@ function forgetCancelsWhenRendererGoes(sender: CancelSender): void {
 }
 
 export function registerRuntimeUploadCancelHandlers(): void {
-  // Why: the drop UI cancels a whole dropped source, so the id it sends is the
-  // one every file of that source streams under.
   ipcMain.handle('fs:cancelRuntimeUpload', (event, args: unknown): void => {
     const uploadId = readUploadId(args)
     if (uploadId) {
@@ -52,8 +49,6 @@ export function registerRuntimeUploadCancelHandlers(): void {
     }
   })
 
-  // Why: ids are minted per drop, but a cancel recorded for one must not outlive
-  // it and abort a later upload that happens to reuse the id.
   ipcMain.handle('fs:releaseRuntimeUpload', (event, args: unknown): void => {
     const uploadId = readUploadId(args)
     if (uploadId) {

@@ -29,7 +29,7 @@ export function throttleRuntimeUploadProgress(
   let lastSentBytes = -1
   let lastEmittedAt = -Infinity
   return (progress) => {
-    // Why: an unknown total (0) is not "done"; treating it so would forward every slice.
+    // An unknown total (0) is not done; treating it so would forward every slice.
     const isTerminal = progress.totalBytes > 0 && progress.sentBytes >= progress.totalBytes
     const isFirst = lastSentBytes < 0
     const currentTime = now()

@@ -53,7 +53,7 @@ export function forgetRuntimeUploadCancellation(uploadId: string): void {
   cancelled.delete(uploadId)
 }
 
-/** A closed window can never release its drops, so its remembered cancels go with it. */
+/** A gone renderer can never release its drops, so its remembered cancels go with it. */
 export function forgetRuntimeUploadCancellationsForSender(senderId: number): void {
   const prefix = scopeRuntimeUploadId(senderId, '')
   for (const key of cancelled) {
