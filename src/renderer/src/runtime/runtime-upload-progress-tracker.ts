@@ -1,4 +1,8 @@
-import { isUploadCancelledReason } from '../../../shared/ssh-import-cancel-reason'
+import {
+  isUploadCancelledReason,
+  UPLOAD_CANCELLED_REASON
+} from '../../../shared/ssh-import-cancel-reason'
+
 export type RuntimeUploadProgressReport = { sentBytes: number; totalBytes: number }
 
 export type RuntimeUploadProgressTracker = {
@@ -110,4 +114,14 @@ export function wasStoppedByCancel(
     handlers?.isCancelled?.(uploadId) === true &&
     isUploadCancelledReason(reason)
   )
+}
+
+/** Throws the cancel reason once the user cancelled this source's row. */
+export function stopIfCancelled(
+  handlers: RuntimeImportProgressHandlers | undefined,
+  uploadId: string | undefined
+): void {
+  if (uploadId !== undefined && handlers?.isCancelled?.(uploadId) === true) {
+    throw new Error(UPLOAD_CANCELLED_REASON)
+  }
 }

@@ -495,6 +495,39 @@ describe('runtime file client', () => {
     )
   })
 
+  it('creates nothing on the runtime when cancel lands before the first directory', async () => {
+    fsStageExternalPathsForRuntimeUpload.mockResolvedValue({
+      sources: [
+        {
+          sourcePath: '/Users/me/empty',
+          status: 'staged',
+          name: 'empty',
+          kind: 'directory',
+          entries: [{ relativePath: '', kind: 'directory' }]
+        }
+      ]
+    })
+    runtimeEnvironmentCall.mockImplementation(async (call: { method: string }) =>
+      call.method === 'files.stat' ? notFoundResponse('stat-miss') : okResponse('ok')
+    )
+
+    const { results } = await importExternalPathsToRuntime(
+      {
+        settings: { activeRuntimeEnvironmentId: 'env-1' },
+        worktreeId: 'wt-1',
+        worktreePath: '/remote/repo'
+      },
+      ['/Users/me/empty'],
+      '/remote/repo/uploads',
+      { progress: { ...quietHandlers(), isCancelled: () => true } }
+    )
+
+    expect(results[0]).toMatchObject({ status: 'failed', cancelled: true })
+    expect(runtimeEnvironmentCall).not.toHaveBeenCalledWith(
+      expect.objectContaining({ method: 'files.createDirNoClobber' })
+    )
+  })
+
   it('marks a cancelled file cancelled through the IPC error wrapper', async () => {
     const [result] = await importFileThatThrowsAfterCancel(
       "Error invoking remote method 'fs:uploadExternalFileToRuntime': Error: Upload cancelled"
