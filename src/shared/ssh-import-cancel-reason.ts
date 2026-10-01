@@ -22,3 +22,8 @@ export function hasUploadLeftovers(reason: string | undefined): boolean {
     reason !== undefined && /; (partial upload left at |\d+ partial items left under )/.test(reason)
   )
 }
+
+/** True when the reason says the user's cancel stopped the source, leftovers or not. */
+export function isUploadCancelledReason(reason: string): boolean {
+  return reason === UPLOAD_CANCELLED_REASON || reason.startsWith(`${UPLOAD_CANCELLED_REASON};`)
+}

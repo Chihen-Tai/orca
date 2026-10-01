@@ -28,7 +28,8 @@ import {
   sumSourceUploadBytes,
   type RuntimeImportProgressHandlers,
   type RuntimeImportProgressRow,
-  type RuntimeUploadProgressTracker
+  type RuntimeUploadProgressTracker,
+  wasStoppedByCancel
 } from './runtime-upload-progress-tracker'
 
 export async function importExternalPathsToRuntime(
@@ -234,12 +235,13 @@ export async function importExternalPathsToRuntime(
             15_000
           ).catch(() => {})
         }
+        const reason = error instanceof Error ? error.message : String(error)
         results.push({
           sourcePath: source.sourcePath,
           status: 'failed',
-          reason: error instanceof Error ? error.message : String(error),
-          // Why: marked per source, since a path dropped twice can be cancelled once.
-          ...(sourceUploadId && handlers?.isCancelled?.(sourceUploadId) ? { cancelled: true } : {})
+          reason,
+          // Why: per source, since a path dropped twice can be cancelled once.
+          ...(wasStoppedByCancel(handlers, sourceUploadId, reason) ? { cancelled: true } : {})
         })
         // Why: reported as failed even for a cancel; the upload panel maps a failed source the
         // user cancelled to 'cancelled', so the user's own action is not relabelled.

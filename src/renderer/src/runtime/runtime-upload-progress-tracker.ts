@@ -1,3 +1,4 @@
+import { isUploadCancelledReason } from '../../../shared/ssh-import-cancel-reason'
 export type RuntimeUploadProgressReport = { sentBytes: number; totalBytes: number }
 
 export type RuntimeUploadProgressTracker = {
@@ -96,4 +97,17 @@ export function sumSourceUploadBytes(source: {
     }
   }
   return total
+}
+
+/** The user's cancel is what stopped this source, not a failure that came after the click. */
+export function wasStoppedByCancel(
+  handlers: RuntimeImportProgressHandlers | undefined,
+  uploadId: string | undefined,
+  reason: string
+): boolean {
+  return (
+    uploadId !== undefined &&
+    handlers?.isCancelled?.(uploadId) === true &&
+    isUploadCancelledReason(reason)
+  )
 }
