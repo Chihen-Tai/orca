@@ -94,6 +94,16 @@ describe('runtime upload cancellation', () => {
     live.release()
   })
 
+  it('keeps a live registration cancellable after its remembered cancel is released', () => {
+    const live = registerCancellableUpload('u')
+    forgetRuntimeUploadCancellation('u')
+
+    cancelRuntimeUpload('u')
+
+    expect(live.signal.aborted).toBe(true)
+    live.release()
+  })
+
   it('recognises its own error and nothing else', () => {
     expect(isRuntimeUploadCancelled(new RuntimeUploadCancelledError())).toBe(true)
     expect(isRuntimeUploadCancelled(new Error('disk full'))).toBe(false)
