@@ -82,22 +82,14 @@ function classifySftpEntry(entry: FileEntryWithStats): 'directory' | 'file' {
   throw new Error(`Cannot download unsupported remote entry '${entry.filename}'`)
 }
 
-// Why: a tree with thousands of folders costs one round trip each; past this the
-// download starts without a total rather than sitting at 0 B looking stuck.
-const REMOTE_TREE_MEASURE_BUDGET_MS = 2000
-
-/** Size-only pre-walk (one running sum, no file list); null once the time budget runs out. */
+/** Size-only walk (one running sum, no file list), run alongside the download. */
 async function measureRemoteTree(
   sftp: SFTPWrapper,
   sourceDir: string,
-  options: FolderDownloadOptions,
-  budget: { deadline: number }
-): Promise<number | null> {
+  options: FolderDownloadOptions
+): Promise<number> {
   const { signal, windowsRemotePaths } = options
   signal?.throwIfAborted()
-  if (Date.now() > budget.deadline) {
-    return null
-  }
   let total = 0
   for (const entry of await readDirViaSftp(sftp, sourceDir, { signal })) {
     if (entry.filename === '.' || entry.filename === '..' || entry.attrs.isSymbolicLink()) {
@@ -105,11 +97,7 @@ async function measureRemoteTree(
     }
     if (entry.attrs.isDirectory()) {
       const childDir = joinSftpChildPath(sourceDir, entry.filename, windowsRemotePaths)
-      const childTotal = await measureRemoteTree(sftp, childDir, options, budget)
-      if (childTotal === null) {
-        return null
-      }
-      total += childTotal
+      total += await measureRemoteTree(sftp, childDir, options)
     } else if (entry.attrs.isFile()) {
       total += entry.attrs.size
     }
@@ -235,22 +223,30 @@ export async function downloadFolderViaSftp(
   signal?.throwIfAborted()
   const sftp = await createSftp({ signal })
   const endSftp = createSftpCloser(sftp)
+  // Why: a walk that finishes after the download must not report a total for a finished transfer.
+  let settled = false
   signal?.addEventListener('abort', endSftp, { once: true })
   try {
     const rootStats = await statViaSftp(sftp, sourcePath, { signal })
     if (!rootStats.isDirectory()) {
       throw new Error('Cannot download a file as a folder')
     }
-    if (options?.onTotalBytes) {
-      const total = await measureRemoteTree(sftp, sourcePath, options, {
-        deadline: Date.now() + REMOTE_TREE_MEASURE_BUDGET_MS
-      })
-      if (total !== null) {
-        options.onTotalBytes(total)
-      }
+    const onTotalBytes = options?.onTotalBytes
+    if (onTotalBytes) {
+      // Why: a timed-out walk left big trees, the ones that need a bar, with none; walking
+      // alongside the download costs no wait and supplies the total whenever it finishes.
+      void measureRemoteTree(sftp, sourcePath, options)
+        .then((total) => {
+          if (!settled) {
+            onTotalBytes(total)
+          }
+        })
+        // A failed walk or observer only means the total stays unknown; never fail the download.
+        .catch(() => {})
     }
     await downloadDirectoryTree(sftp, sourcePath, destinationPath, options ?? {})
   } finally {
+    settled = true
     signal?.removeEventListener('abort', endSftp)
     endSftp()
   }

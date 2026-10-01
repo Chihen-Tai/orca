@@ -117,11 +117,7 @@ describe('SFTP download progress', () => {
       onFileCompleted
     })
 
-    // Why: the size pre-walk runs before any byte moves, so the bar has a real total.
     expect(onTotalBytes).toHaveBeenCalledWith(12)
-    expect(onTotalBytes.mock.invocationCallOrder[0]).toBeLessThan(
-      onBytesTransferred.mock.invocationCallOrder[0]
-    )
     expect(onFileCompleted).toHaveBeenCalledTimes(2)
     const total = onBytesTransferred.mock.calls.reduce((sum, [bytes]) => sum + bytes, 0)
     expect(total).toBe(12)
@@ -148,28 +144,87 @@ describe('SFTP download progress', () => {
     }
   }
 
-  it('gives up on the total past its time budget and still downloads everything', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'orca-ssh-folder-budget-'))
+  it('supplies the total while the download is still moving bytes', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'orca-ssh-folder-walk-late-'))
     roots.push(root)
-    let clock = 0
-    const now = vi.spyOn(Date, 'now').mockImplementation(() => clock)
-    // Why: every listing costs a round trip; pretend the first one took past the budget.
-    const sftp = folderSftp(() => {
-      clock += 5000
-    })
+    const sftp = folderSftp()
     const onTotalBytes = vi.fn()
+    // The first file waits until the walk has reported, so the total lands while bytes still move.
+    const firstFileGate = Promise.withResolvers<void>()
+    onTotalBytes.mockImplementation(() => firstFileGate.resolve())
+    const plainFastGet = sftp.fastGet
+    sftp.fastGet = vi.fn((...args: Parameters<typeof plainFastGet>) => {
+      void firstFileGate.promise.then(() => plainFastGet(...args))
+    })
+    await downloadFolderViaSftp(async () => asSftp(sftp), '/remote/src', join(root, 'src'), {
+      onTotalBytes,
+      onBytesTransferred: vi.fn()
+    })
+
+    expect(onTotalBytes).toHaveBeenCalledWith(12)
+    expect(sftp.fastGet).toHaveBeenCalledTimes(2)
+  })
+
+  it('finishes the download when the total observer throws', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'orca-ssh-folder-observer-throws-'))
+    roots.push(root)
+    const unhandled = vi.fn()
+    process.on('unhandledRejection', unhandled)
+    const sftp = folderSftp()
     try {
       await downloadFolderViaSftp(async () => asSftp(sftp), '/remote/src', join(root, 'src'), {
-        onTotalBytes,
+        onTotalBytes: () => {
+          throw new Error('observer failed')
+        },
         onBytesTransferred: vi.fn()
       })
+      await new Promise((resolve) => setTimeout(resolve, 0))
     } finally {
-      now.mockRestore()
+      process.off('unhandledRejection', unhandled)
     }
 
+    expect(unhandled).not.toHaveBeenCalled()
+    expect(sftp.fastGet).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not wait for a slow walk, and drops a total that arrives after the download', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'orca-ssh-folder-walk-slow-'))
+    roots.push(root)
+    const sftp = folderSftp()
+    const answer = sftp.readdir.getMockImplementation()!
+    let heldWalk: (() => void) | undefined
+    // Why: the walk issues the first listing; holding it leaves the walk running past the download.
+    sftp.readdir.mockImplementationOnce((path, callback) => {
+      heldWalk = () => answer(path, callback)
+    })
+    const onTotalBytes = vi.fn()
+
+    await downloadFolderViaSftp(async () => asSftp(sftp), '/remote/src', join(root, 'src'), {
+      onTotalBytes,
+      onBytesTransferred: vi.fn()
+    })
+    expect(sftp.fastGet).toHaveBeenCalledTimes(2)
+    heldWalk?.()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
     expect(onTotalBytes).not.toHaveBeenCalled()
-    // Why: the scan stops at the budget instead of walking on beside the download (1 + 2 lists).
-    expect(sftp.readdir).toHaveBeenCalledTimes(3)
+  })
+
+  it('still downloads everything when the size walk fails', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'orca-ssh-folder-walk-fail-'))
+    roots.push(root)
+    const sftp = folderSftp()
+    sftp.readdir.mockImplementationOnce((_path, callback) =>
+      callback(new Error('Permission denied'), undefined)
+    )
+    const onTotalBytes = vi.fn()
+
+    await downloadFolderViaSftp(async () => asSftp(sftp), '/remote/src', join(root, 'src'), {
+      onTotalBytes,
+      onBytesTransferred: vi.fn()
+    })
+
+    expect(onTotalBytes).not.toHaveBeenCalled()
     expect(sftp.fastGet).toHaveBeenCalledTimes(2)
   })
 

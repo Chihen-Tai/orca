@@ -168,7 +168,18 @@ function TransferRowItem({
       </span>
       {/* Dimmed through a wrapper: <Progress> owns its own effects. */}
       <div className={cn('w-24 shrink-0', inactive && 'opacity-40')}>
-        <Progress value={percent ?? 0} aria-label={row.name} className="h-1.5" />
+        {percent === null && !inactive ? (
+          // Why: bytes are moving toward a total not known yet; a bar parked at 0 reads as stuck.
+          <div
+            role="progressbar"
+            aria-label={row.name}
+            className="h-1.5 overflow-hidden rounded-full bg-primary/20"
+          >
+            <div className="h-full w-2/5 animate-[skill-update-slide_1.35s_ease-in-out_infinite] rounded-full bg-primary motion-reduce:w-full motion-reduce:animate-none motion-reduce:opacity-40" />
+          </div>
+        ) : (
+          <Progress value={percent ?? 0} aria-label={row.name} className="h-1.5" />
+        )}
       </div>
       <span className="w-9 shrink-0 text-right text-[13px] tabular-nums text-muted-foreground">
         {percent === null ? '' : `${percent}%`}
