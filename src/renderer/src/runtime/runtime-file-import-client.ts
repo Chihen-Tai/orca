@@ -22,14 +22,7 @@ import {
 } from './runtime-file-upload-client'
 import { getActiveRuntimeTarget } from './runtime-rpc-client'
 import { toRuntimeWorktreeSelector } from './runtime-worktree-selector'
-import { runSshUploadWithProgress } from './ssh-upload-progress-client'
-import { hasUploadLeftovers } from '../../../shared/ssh-import-cancel-reason'
-
-function leftoverDetail(result: ImportItemResult | undefined): string | undefined {
-  return result?.status === 'failed' && hasUploadLeftovers(result.reason)
-    ? result.reason
-    : undefined
-}
+import { importResultOutcome, runSshUploadWithProgress } from './ssh-upload-progress-client'
 import {
   createRuntimeUploadProgressTracker,
   sumSourceUploadBytes,
@@ -65,12 +58,7 @@ export async function importExternalPathsToRuntime(
             ...(uploadIds ? { uploadIds } : {})
           })
         ),
-      ({ results }, sourcePath) => {
-        const result = results.find((entry) => entry.sourcePath === sourcePath)
-        return result?.status === 'imported'
-          ? { status: 'done' }
-          : { status: 'failed', detail: leftoverDetail(result) }
-      }
+      importResultOutcome
     )
   }
 
@@ -108,16 +96,18 @@ export async function importExternalPathsToRuntime(
   const handlers = options?.progress
   // One id per dropped source: it is both the progress key and the cancel handle,
   // so cancelling a row stops that source and leaves the rest of the drop running.
-  const uploadIdsBySourcePath = new Map<string, string>()
+  // Why: keyed by position, not path — the same path dropped twice stages twice
+  // and each copy needs its own bar and cancel.
+  const uploadIdsBySourceIndex = new Map<number, string>()
   const trackers = new Map<string, RuntimeUploadProgressTracker>()
   if (handlers) {
     const rows: RuntimeImportProgressRow[] = []
-    for (const source of staged.sources) {
+    for (const [sourceIndex, source] of staged.sources.entries()) {
       if (source.status !== 'staged') {
         continue
       }
       const rowUploadId = createBrowserUuid()
-      uploadIdsBySourcePath.set(source.sourcePath, rowUploadId)
+      uploadIdsBySourceIndex.set(sourceIndex, rowUploadId)
       const totalBytes = sumSourceUploadBytes(source)
       trackers.set(
         rowUploadId,
@@ -148,13 +138,13 @@ export async function importExternalPathsToRuntime(
   try {
     await ensureRuntimeDirectory(context, destinationDir, importSession)
 
-    for (const source of staged.sources) {
+    for (const [sourceIndex, source] of staged.sources.entries()) {
       if (source.status !== 'staged') {
         results.push(source)
         continue
       }
       let createdDirectoryImportRoot: string | null = null
-      const sourceUploadId = uploadIdsBySourcePath.get(source.sourcePath)
+      const sourceUploadId = uploadIdsBySourceIndex.get(sourceIndex)
       try {
         const finalName = await deconflictRuntimeImportName(
           context,
@@ -168,6 +158,11 @@ export async function importExternalPathsToRuntime(
         for (const entry of source.entries) {
           const entryRelativePath = joinRuntimeRelativePath(destRelativePath, entry.relativePath)
           if (entry.kind === 'directory') {
+            // Why: only file streams reach main's cancel registry, so a source made
+            // of empty directories would otherwise finish despite the cancel.
+            if (sourceUploadId && handlers?.isCancelled?.(sourceUploadId)) {
+              throw new Error('Upload cancelled')
+            }
             await callRuntimeFileImportMutation(
               importSession,
               'files.createDirNoClobber',
@@ -242,7 +237,9 @@ export async function importExternalPathsToRuntime(
         results.push({
           sourcePath: source.sourcePath,
           status: 'failed',
-          reason: error instanceof Error ? error.message : String(error)
+          reason: error instanceof Error ? error.message : String(error),
+          // Why: marked per source, since a path dropped twice can be cancelled once.
+          ...(sourceUploadId && handlers?.isCancelled?.(sourceUploadId) ? { cancelled: true } : {})
         })
         // Why: reported as failed even for a cancel; the upload panel maps a failed source the
         // user cancelled to 'cancelled', so the user's own action is not relabelled.
@@ -255,7 +252,7 @@ export async function importExternalPathsToRuntime(
     return { results }
   } finally {
     unsubscribeProgress?.()
-    for (const releasedId of uploadIdsBySourcePath.values()) {
+    for (const releasedId of uploadIdsBySourceIndex.values()) {
       void window.api.fs.releaseRuntimeUpload({ uploadId: releasedId }).catch(() => {})
     }
     handlers?.onFinish()

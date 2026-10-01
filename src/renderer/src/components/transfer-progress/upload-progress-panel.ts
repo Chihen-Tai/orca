@@ -1,6 +1,7 @@
 import type { RuntimeImportProgressHandlers } from '@/runtime/runtime-upload-progress-tracker'
 import {
   openTransferProgressPanel,
+  type TransferPanelScope,
   type TransferProgressPanelHandle
 } from './open-transfer-progress-panel'
 
@@ -13,11 +14,14 @@ export type UploadProgressPanel = {
 }
 
 /** Import progress handlers that drive one upload panel; it opens once rows exist. */
-export function createUploadProgressPanel(): UploadProgressPanel {
+export function createUploadProgressPanel(scope?: TransferPanelScope): UploadProgressPanel {
   let panel: TransferProgressPanelHandle | null = null
   const cancelledSourcePaths = new Set<string>()
+  // Why: per row, since a path dropped twice is two rows and can be cancelled once.
+  const cancelledUploadIds = new Set<string>()
   const sourcePathsByUploadId = new Map<string, string>()
   const cancelRow = (uploadId: string): void => {
+    cancelledUploadIds.add(uploadId)
     const sourcePath = sourcePathsByUploadId.get(uploadId)
     if (sourcePath) {
       cancelledSourcePaths.add(sourcePath)
@@ -45,7 +49,8 @@ export function createUploadProgressPanel(): UploadProgressPanel {
             status: 'active' as const,
             ...(row.kind ? { kind: row.kind } : {})
           })),
-          cancelRow
+          cancelRow,
+          scope
         )
       },
       onRowProgress: (uploadId, sentBytes, totalBytes, kind) =>
@@ -55,14 +60,13 @@ export function createUploadProgressPanel(): UploadProgressPanel {
           ...(kind ? { kind } : {})
         }),
       onRowSettled: (uploadId, status, detail) => {
-        const sourcePath = sourcePathsByUploadId.get(uploadId)
         // Why: a cancelled source reports failed; one that finished anyway reports done.
-        const cancelled = sourcePath !== undefined && cancelledSourcePaths.has(sourcePath)
         panel?.updateRow(uploadId, {
-          status: status === 'failed' && cancelled ? 'cancelled' : status,
+          status: status === 'failed' && cancelledUploadIds.has(uploadId) ? 'cancelled' : status,
           ...(detail ? { detail } : {})
         })
       },
+      isCancelled: (uploadId) => cancelledUploadIds.has(uploadId),
       onFinish: () => panel?.settle()
     },
     cancelledSourcePaths,

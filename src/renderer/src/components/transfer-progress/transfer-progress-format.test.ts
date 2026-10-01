@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatTransferredOfTotal, toPercent } from './transfer-progress-format'
+import { formatTransferredOfTotal, toPercent, toRowPercent } from './transfer-progress-format'
 
 const MB = 1024 * 1024
 
@@ -28,6 +28,20 @@ describe('formatTransferredOfTotal', () => {
   it('handles a zero-byte drop without dividing by zero', () => {
     expect(formatTransferredOfTotal(0, 0)).toBe('0 B')
     expect(formatTransferredOfTotal(3 * 1024 * 1024, 0)).toBe('3.00 MB')
+  })
+})
+
+describe('toRowPercent', () => {
+  it('reads 100 for a finished row with nothing to move', () => {
+    expect(toRowPercent({ status: 'done', sentBytes: 0, totalBytes: 0 })).toBe(100)
+  })
+
+  it('stays at 0 for an empty row still in flight', () => {
+    expect(toRowPercent({ status: 'active', sentBytes: 0, totalBytes: 0 })).toBe(0)
+  })
+
+  it('follows the bytes for a row with content', () => {
+    expect(toRowPercent({ status: 'active', sentBytes: 25, totalBytes: 100 })).toBe(25)
   })
 })
 

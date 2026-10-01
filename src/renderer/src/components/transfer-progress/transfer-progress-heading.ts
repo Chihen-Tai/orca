@@ -27,7 +27,8 @@ export function formatTransferProgressHeading({
           count: rowCount
         })
   }
-  if (doneCount === 0 && cancelledCount > 0) {
+  // Why: only an all-cancelled transfer reads as cancelled; a failure among the cancels must show.
+  if (doneCount === 0 && cancelledCount > 0 && cancelledCount === rowCount) {
     return upload
       ? translate('transferProgress.heading.upload.cancelled', 'Upload cancelled')
       : translate('transferProgress.heading.download.cancelled', 'Download cancelled')

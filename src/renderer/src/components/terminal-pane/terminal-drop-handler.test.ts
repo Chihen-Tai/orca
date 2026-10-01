@@ -55,7 +55,8 @@ vi.mock('sonner', () => ({
 
 vi.mock('@/store', () => ({
   useAppStore: {
-    getState: () => mocks.storeState
+    getState: () => mocks.storeState,
+    subscribe: () => () => {}
   }
 }))
 
@@ -129,8 +130,23 @@ const EXPECTED_IMPORT_OPTIONS = {
     onStart: expect.any(Function),
     onRowProgress: expect.any(Function),
     onRowSettled: expect.any(Function),
-    onFinish: expect.any(Function)
+    onFinish: expect.any(Function),
+    isCancelled: expect.any(Function)
   }
+}
+
+/** Points the store at one SSH-backed repo whose only worktree is `wt-1`. */
+function stubSshRepo(
+  connectionId: string,
+  path: string,
+  sshState: { remotePlatform?: NodeJS.Platform; connectionGeneration?: number }
+): void {
+  mocks.storeState.settings = { activeRuntimeEnvironmentId: null }
+  mocks.storeState.repos = [
+    { id: 'repo1', connectionId, path, executionHostId: `ssh:${connectionId}` }
+  ]
+  mocks.storeState.worktreesByRepo = { repo1: [{ id: 'wt-1', repoId: 'repo1', path }] }
+  mocks.storeState.sshConnectionStates = new Map([[connectionId, sshState]])
 }
 
 describe('handleTerminalFileDrop', () => {
@@ -710,21 +726,7 @@ describe('handleTerminalFileDrop', () => {
   })
 
   it('uses SSH remote platform metadata for Windows remote path drops', async () => {
-    mocks.storeState.settings = { activeRuntimeEnvironmentId: null }
-    mocks.storeState.repos = [
-      {
-        id: 'repo1',
-        connectionId: 'ssh-win',
-        path: 'C:\\Remote Repo',
-        executionHostId: 'ssh:ssh-win'
-      }
-    ]
-    mocks.storeState.worktreesByRepo = {
-      repo1: [{ id: 'wt-1', repoId: 'repo1', path: 'C:\\Remote Repo' }]
-    }
-    mocks.storeState.sshConnectionStates = new Map([
-      ['ssh-win', { remotePlatform: 'win32', connectionGeneration: 4 }]
-    ])
+    stubSshRepo('ssh-win', 'C:\\Remote Repo', { remotePlatform: 'win32', connectionGeneration: 4 })
     mocks.resolveDroppedPathsForAgent.mockResolvedValue({
       failed: [],
       resolvedPaths: ['C:\\Remote Repo\\A&B.txt'],
@@ -762,21 +764,7 @@ describe('handleTerminalFileDrop', () => {
   })
 
   it('pastes a spaced image dropped on a Windows SSH host with Windows quoting', async () => {
-    mocks.storeState.settings = { activeRuntimeEnvironmentId: null }
-    mocks.storeState.repos = [
-      {
-        id: 'repo1',
-        connectionId: 'ssh-win',
-        path: 'C:\\Remote Repo',
-        executionHostId: 'ssh:ssh-win'
-      }
-    ]
-    mocks.storeState.worktreesByRepo = {
-      repo1: [{ id: 'wt-1', repoId: 'repo1', path: 'C:\\Remote Repo' }]
-    }
-    mocks.storeState.sshConnectionStates = new Map([
-      ['ssh-win', { remotePlatform: 'win32', connectionGeneration: 4 }]
-    ])
+    stubSshRepo('ssh-win', 'C:\\Remote Repo', { remotePlatform: 'win32', connectionGeneration: 4 })
     mocks.resolveDroppedPathsForAgent.mockResolvedValue({
       failed: [],
       resolvedPaths: ['C:\\Remote Repo\\.orca\\drops\\Screenshot 1.png'],
@@ -802,19 +790,7 @@ describe('handleTerminalFileDrop', () => {
   })
 
   it('surfaces stale SSH owner capture failures without rejecting the native drop', async () => {
-    mocks.storeState.settings = { activeRuntimeEnvironmentId: null }
-    mocks.storeState.repos = [
-      {
-        id: 'repo1',
-        connectionId: 'ssh-stale',
-        path: '/remote/repo',
-        executionHostId: 'ssh:ssh-stale'
-      }
-    ]
-    mocks.storeState.worktreesByRepo = {
-      repo1: [{ id: 'wt-1', repoId: 'repo1', path: '/remote/repo' }]
-    }
-    mocks.storeState.sshConnectionStates = new Map([['ssh-stale', { remotePlatform: 'linux' }]])
+    stubSshRepo('ssh-stale', '/remote/repo', { remotePlatform: 'linux' })
     const pane = { id: 1, leafId: 'leaf-1', terminal: { focus: vi.fn() } }
 
     await expect(
@@ -835,21 +811,7 @@ describe('handleTerminalFileDrop', () => {
   })
 
   it('keeps SSH Linux path drops on POSIX shell escaping', async () => {
-    mocks.storeState.settings = { activeRuntimeEnvironmentId: null }
-    mocks.storeState.repos = [
-      {
-        id: 'repo1',
-        connectionId: 'ssh-linux',
-        path: '/remote/repo',
-        executionHostId: 'ssh:ssh-linux'
-      }
-    ]
-    mocks.storeState.worktreesByRepo = {
-      repo1: [{ id: 'wt-1', repoId: 'repo1', path: '/remote/repo' }]
-    }
-    mocks.storeState.sshConnectionStates = new Map([
-      ['ssh-linux', { remotePlatform: 'linux', connectionGeneration: 5 }]
-    ])
+    stubSshRepo('ssh-linux', '/remote/repo', { remotePlatform: 'linux', connectionGeneration: 5 })
     mocks.resolveDroppedPathsForAgent.mockResolvedValue({
       failed: [],
       resolvedPaths: ["/remote/repo/it's here.txt"],

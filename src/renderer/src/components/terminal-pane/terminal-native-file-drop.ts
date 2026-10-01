@@ -10,6 +10,7 @@ import { isWindowsAbsolutePathLike } from '../../../../shared/cross-platform-pat
 import { isWslUncPath, parseWslUncPath } from '../../../../shared/wsl-paths'
 import type { PtyTransport } from './pty-transport'
 import { reportTerminalDropUploadSkipsAndFailures } from './terminal-drop-upload-report'
+import { describeDropWorkspaceIfInactive } from './terminal-drop-workspace-label'
 import type { NativeDropFlowArgs } from './terminal-drop-paste'
 import { pasteResolvedDropPaths } from './terminal-drop-paste'
 import { uploadRuntimeDropPaths } from './terminal-runtime-drop-upload'
@@ -146,6 +147,7 @@ async function handleNativeTerminalFileDropWithCapturedOwner(
     pane,
     tabId,
     targetShell,
+    worktreeId,
     worktreePath
   })
 }
@@ -179,9 +181,13 @@ async function pasteLocalDropPaths(
 }
 
 async function uploadRemoteDropPaths(
-  args: NativeDropFlowArgs & { connectionId: string; targetShell: 'posix' | 'windows' }
+  args: NativeDropFlowArgs & {
+    connectionId: string
+    targetShell: 'posix' | 'windows'
+    worktreeId: string
+  }
 ): Promise<void> {
-  const panel = createUploadProgressPanel()
+  const panel = createUploadProgressPanel({ worktreeId: args.worktreeId })
   try {
     const { resolvedPaths, skipped, failed } = await runSshUploadWithProgress(
       args.dataPaths,
@@ -211,11 +217,14 @@ async function uploadRemoteDropPaths(
     reportTerminalDropUploadSkipsAndFailures(
       skipped,
       // Why: a cancel is the user's own decision, not a failure to report back.
-      failed.filter((item) => !panel.cancelledSourcePaths.has(item.sourcePath))
+      failed.filter((item) => !panel.cancelledSourcePaths.has(item.sourcePath)),
+      describeDropWorkspaceIfInactive(args.worktreeId, args.worktreePath)
     )
   } catch (err) {
     panel.close()
-    toast.error(extractIpcErrorMessage(err, 'Failed to upload files.'))
+    toast.error(extractIpcErrorMessage(err, 'Failed to upload files.'), {
+      description: describeDropWorkspaceIfInactive(args.worktreeId, args.worktreePath)
+    })
   }
 }
 

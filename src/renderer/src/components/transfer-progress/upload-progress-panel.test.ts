@@ -49,7 +49,8 @@ describe('createUploadProgressPanel', () => {
     expect(openPanel).toHaveBeenCalledWith(
       'upload',
       [{ transferId: 'u1', name: 'videos', sentBytes: 0, totalBytes: 0, status: 'active' }],
-      expect.any(Function)
+      expect.any(Function),
+      undefined
     )
     expect(panel.updateRow.mock.calls).toEqual([
       ['u1', { sentBytes: 5, totalBytes: 10 }],

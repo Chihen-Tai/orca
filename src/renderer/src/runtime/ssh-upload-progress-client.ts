@@ -1,6 +1,26 @@
 import { createBrowserUuid } from '@/lib/browser-uuid'
 import { basename } from '@/lib/path'
+import type { ImportItemResult } from '../../../shared/filesystem-import-result-types'
+import { hasUploadLeftovers } from '../../../shared/ssh-import-cancel-reason'
 import type { RuntimeImportProgressHandlers } from './runtime-upload-progress-tracker'
+
+type SshUploadOutcome = { status: 'done' | 'failed'; detail?: string }
+
+/** How an `fs:importExternalPaths` result ends one source's row; leftovers stay on the row. */
+export function importResultOutcome(
+  { results }: { results: ImportItemResult[] },
+  sourcePath: string
+): SshUploadOutcome {
+  const result = results.find((entry) => entry.sourcePath === sourcePath)
+  if (result?.status === 'imported') {
+    return { status: 'done' }
+  }
+  return {
+    status: 'failed',
+    detail:
+      result?.status === 'failed' && hasUploadLeftovers(result.reason) ? result.reason : undefined
+  }
+}
 
 /**
  * Drives upload progress for an SSH import, where main owns the byte pump.
@@ -11,7 +31,7 @@ export async function runSshUploadWithProgress<T>(
   sourcePaths: string[],
   handlers: RuntimeImportProgressHandlers | undefined,
   run: (uploadIds: Record<string, string> | undefined) => Promise<T>,
-  outcomeFor: (result: T, sourcePath: string) => { status: 'done' | 'failed'; detail?: string }
+  outcomeFor: (result: T, sourcePath: string) => SshUploadOutcome
 ): Promise<T> {
   if (!handlers) {
     return run(undefined)

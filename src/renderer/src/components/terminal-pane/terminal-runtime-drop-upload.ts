@@ -5,6 +5,7 @@ import type { useAppStore } from '@/store'
 import { createUploadProgressPanel } from '@/components/transfer-progress/upload-progress-panel'
 import type { NativeDropFlowArgs } from './terminal-drop-paste'
 import { pasteResolvedDropPaths } from './terminal-drop-paste'
+import { describeDropWorkspaceIfInactive } from './terminal-drop-workspace-label'
 import { reportTerminalDropUploadSkipsAndFailures } from './terminal-drop-upload-report'
 import {
   getTerminalTargetShellForWorktreePath,
@@ -21,7 +22,7 @@ export async function uploadRuntimeDropPaths(
 ): Promise<void> {
   const targetShell = getTerminalTargetShellForWorktreePath(args.worktreePath)
   const destinationDir = joinRuntimeTerminalDropDir(args.worktreePath)
-  const panel = createUploadProgressPanel()
+  const panel = createUploadProgressPanel({ worktreeId: args.worktreeId })
   try {
     const { results } = await importExternalPathsToRuntime(
       {
@@ -53,12 +54,15 @@ export async function uploadRuntimeDropPaths(
       // Why: a cancel is the user's own decision, not a failure to report back.
       results
         .filter((result) => result.status === 'failed')
-        .filter((result) => !panel.cancelledSourcePaths.has(result.sourcePath))
+        .filter((result) => result.cancelled !== true),
+      describeDropWorkspaceIfInactive(args.worktreeId, args.worktreePath)
     )
   } catch (err) {
     // Why: only the error path tears the panel down immediately. On success it
     // owns its own exit, holding long enough to show how the drop ended.
     panel.close()
-    toast.error(extractIpcErrorMessage(err, 'Failed to upload files.'))
+    toast.error(extractIpcErrorMessage(err, 'Failed to upload files.'), {
+      description: describeDropWorkspaceIfInactive(args.worktreeId, args.worktreePath)
+    })
   }
 }

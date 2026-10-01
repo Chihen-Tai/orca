@@ -18,7 +18,7 @@ import {
   type TransferDirection,
   type TransferRow
 } from './transfer-session-state'
-import { formatTransferredOfTotal, toPercent } from './transfer-progress-format'
+import { formatTransferredOfTotal, toRowPercent } from './transfer-progress-format'
 import { formatTransferProgressHeading } from './transfer-progress-heading'
 
 // Long enough to read the outcome, short enough not to linger over the workspace.
@@ -150,7 +150,8 @@ function TransferRowItem({
   onCancel: (transferId: string) => void
 }): React.JSX.Element {
   // Why: without a known total a percentage would read as 0% forever; show bytes alone.
-  const percent = row.totalBytes > 0 ? toPercent(row.sentBytes, row.totalBytes) : null
+  // A finished row still reads 100%, even an empty file or folder.
+  const percent = row.status === 'done' || row.totalBytes > 0 ? toRowPercent(row) : null
   const inactive = row.status !== 'active'
   const RowIcon = row.kind === 'directory' ? FolderIcon : FileIcon
 

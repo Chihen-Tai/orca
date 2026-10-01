@@ -1,6 +1,11 @@
 import { createElement } from 'react'
 import { toast } from 'sonner'
 import { createBrowserUuid } from '@/lib/browser-uuid'
+import {
+  openWorktreeScopedToast,
+  type ToastId,
+  type WorktreeScopedToast
+} from '@/lib/worktree-scoped-toast'
 import { TransferProgressPanel } from './TransferProgressPanel'
 import {
   endTransferSession,
@@ -27,38 +32,70 @@ export type TransferProgressPanelHandle = {
   close: () => void
 }
 
+/** Ties the panel to the workspace a transfer targets; without one it shows everywhere. */
+export type TransferPanelScope = { worktreeId: string }
+
+/** A toast shown everywhere, with the same surface as a workspace-scoped one. */
+function openGlobalToast(show: (id: ToastId | undefined) => ToastId): WorktreeScopedToast {
+  let id = show(undefined)
+  let closed = false
+  return {
+    refresh: () => {
+      if (!closed) {
+        id = show(id)
+      }
+    },
+    isShown: () => !closed,
+    close: () => {
+      closed = true
+      toast.dismiss(id)
+    }
+  }
+}
+
 export function openTransferProgressPanel(
   direction: TransferDirection,
   rows: TransferRow[],
-  onCancel: (transferId: string) => void
+  onCancel: (transferId: string) => void,
+  scope?: TransferPanelScope
 ): TransferProgressPanelHandle {
   const sessionId = createBrowserUuid()
-  let toastId: string | number | null = null
   startTransferSession(sessionId, direction, rows)
+  const close = (): void => {
+    endTransferSession(sessionId)
+    presenter.close()
+  }
   // Why: createElement, not a direct call — the toast body must be its own
   // component or its hooks run outside a component boundary.
-  const renderPanel = (id: string | number) =>
+  const renderPanel = () =>
     createElement(TransferProgressPanel, {
       sessionId,
       onCancel,
-      onDismiss: () => {
-        toast.dismiss(id)
-        endTransferSession(sessionId)
-      },
-      onLayoutChange: () => showPanel()
+      onDismiss: close,
+      onLayoutChange: () => presenter.refresh()
     })
   const panelOptions = { duration: Infinity, dismissible: false, unstyled: true }
-  const showPanel = (): void => {
-    // Why: the id key is omitted, not set to undefined. sonner spreads these
-    // options over the id it just minted, so an explicit `id: undefined`
-    // makes it register the toast under a different id than it returns —
-    // and the next re-issue then adds a second panel instead of updating.
-    toastId =
-      toastId === null
-        ? toast.custom(renderPanel, panelOptions)
-        : toast.custom(renderPanel, { ...panelOptions, id: toastId })
-  }
-  showPanel()
+  // Why: the id key is omitted, not set to undefined. sonner spreads these
+  // options over the id it just minted, so an explicit `id: undefined`
+  // makes it register the toast under a different id than it returns —
+  // and the next re-issue then adds a second panel instead of updating.
+  const show = (id: ToastId | undefined): ToastId =>
+    id === undefined
+      ? toast.custom(renderPanel, panelOptions)
+      : toast.custom(renderPanel, { ...panelOptions, id })
+  const presenter: WorktreeScopedToast = scope
+    ? openWorktreeScopedToast({
+        worktreeId: scope.worktreeId,
+        show,
+        // Why: hiding unmounts the panel's outcome timer, so a settled transfer
+        // would otherwise never end.
+        onHidden: () => {
+          if (getTransferSession(sessionId)?.settled) {
+            close()
+          }
+        }
+      })
+    : openGlobalToast(show)
   return {
     sessionId,
     updateRow: (transferId, patch) => updateTransferRow(sessionId, transferId, patch),
@@ -71,12 +108,13 @@ export function openTransferProgressPanel(
         }
       }, CANCEL_UNCONFIRMED_AFTER_MS)
     },
-    settle: () => settleTransferSession(sessionId),
-    close: () => {
-      endTransferSession(sessionId)
-      if (toastId !== null) {
-        toast.dismiss(toastId)
+    settle: () => {
+      settleTransferSession(sessionId)
+      // Why: no outcome replay for a panel settled while its workspace was hidden.
+      if (!presenter.isShown()) {
+        close()
       }
-    }
+    },
+    close
   }
 }

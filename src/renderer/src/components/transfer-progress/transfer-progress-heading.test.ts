@@ -26,6 +26,18 @@ describe('formatTransferProgressHeading', () => {
     ).toBe('Upload cancelled')
   })
 
+  it('does not let a cancel hide a failure when nothing landed', () => {
+    expect(
+      formatTransferProgressHeading({
+        direction: 'upload',
+        rowCount: 2,
+        settled: true,
+        doneCount: 0,
+        cancelledCount: 1
+      })
+    ).toBe('Upload failed')
+  })
+
   it('reports a partial drop by count', () => {
     expect(
       formatTransferProgressHeading({
@@ -99,7 +111,7 @@ describe('formatTransferProgressHeading', () => {
         rowCount: 2,
         settled: true,
         doneCount: 0,
-        cancelledCount: 1
+        cancelledCount: 2
       })
     ).toBe('Download cancelled')
   })

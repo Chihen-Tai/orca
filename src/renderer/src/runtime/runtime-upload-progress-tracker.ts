@@ -81,6 +81,8 @@ export type RuntimeImportProgressHandlers = {
   /** `detail` carries what a cancel could not undo, e.g. a partial upload left on the host. */
   onRowSettled: (uploadId: string, status: 'done' | 'failed', detail?: string) => void
   onFinish: () => void
+  /** Lets the import stop a source the user cancelled before it streams any file. */
+  isCancelled?: (uploadId: string) => boolean
 }
 
 /** Bytes one dropped source will move; directory entries contribute nothing. */
