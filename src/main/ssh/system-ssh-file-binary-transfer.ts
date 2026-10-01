@@ -269,7 +269,7 @@ async function withTemporaryLocalFile<T>(
   }
 }
 
-function makePosixWriteFileCommand(
+export function makePosixWriteFileCommand(
   remotePath: string,
   options?: { append?: boolean; exclusive?: boolean }
 ): string {

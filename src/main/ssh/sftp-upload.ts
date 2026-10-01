@@ -9,6 +9,7 @@ import {
   latchLateSftpStreamErrors,
   type SftpStreamErrorLatch
 } from './sftp-stream-late-error'
+import { observeSftpUpload, type SftpUploadObservers } from './sftp-upload-observers'
 
 export function mkdirSftp(
   sftp: SFTPWrapper,
@@ -33,9 +34,7 @@ export function mkdirSftp(
 export type SftpUploadFileOptions = {
   exclusive?: boolean
   signal?: AbortSignal
-  onRemoteCreated?: () => void
-  onBytesTransferred?: (bytes: number) => void
-}
+} & SftpUploadObservers
 
 export function uploadFile(
   sftp: SFTPWrapper,
@@ -83,16 +82,8 @@ async function uploadFileAndJoinTeardown(
     // Why: the OPEN reply can land after this transfer settles; without a listener that
     // outlives it, ssh2 throws it synchronously into the socket handler (#15479).
     writeStreamErrors = latchLateSftpStreamErrors(writeStream, remotePath)
-    const onRemoteCreated = options?.onRemoteCreated
-    if (onRemoteCreated) {
-      writeStream.once('open', () => onRemoteCreated())
-    }
     readStream = handle.createReadStream({ autoClose: false })
-    const onBytesTransferred = options?.onBytesTransferred
-    if (onBytesTransferred) {
-      // Why: pipe backpressure keeps bytes read within one SFTP window of bytes written.
-      readStream.on('data', (chunk: Buffer | string) => onBytesTransferred(chunk.length))
-    }
+    observeSftpUpload(writeStream, readStream, options)
     const abortTransfer = (): void => {
       const reason =
         options?.signal?.reason instanceof Error
@@ -234,7 +225,20 @@ export async function uploadDirectory(
   sftp: SFTPWrapper,
   localDir: string,
   remoteDir: string,
-  rootRealPath = localDir,
+  root = localDir,
+  options?: { exclusive?: boolean; signal?: AbortSignal }
+): Promise<void> {
+  options?.signal?.throwIfAborted()
+  // Why resolve the root: entries are compared by realpath, so a root under a symlink, junction or
+  // Windows 8.3 short name (RUNNER~1 in TEMP) would otherwise reject every entry as escaped.
+  await uploadDirectoryWithinRoot(sftp, localDir, remoteDir, await realpath(root), options)
+}
+
+async function uploadDirectoryWithinRoot(
+  sftp: SFTPWrapper,
+  localDir: string,
+  remoteDir: string,
+  rootRealPath: string,
   options?: { exclusive?: boolean; signal?: AbortSignal }
 ): Promise<void> {
   options?.signal?.throwIfAborted()
@@ -257,7 +261,7 @@ export async function uploadDirectory(
 
     if (statResult.isDirectory()) {
       await mkdirSftp(sftp, remotePath, { allowExisting: !options?.exclusive })
-      await uploadDirectory(sftp, localPath, remotePath, rootRealPath, options)
+      await uploadDirectoryWithinRoot(sftp, localPath, remotePath, rootRealPath, options)
     } else {
       await uploadFile(sftp, localPath, remotePath, options)
     }
