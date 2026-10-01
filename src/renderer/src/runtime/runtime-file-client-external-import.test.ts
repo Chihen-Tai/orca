@@ -410,8 +410,9 @@ describe('runtime file client', () => {
       .mockResolvedValueOnce(okResponse('create-import-root'))
       .mockResolvedValueOnce(okResponse('delete-import-root'))
     // The user cancels after the root exists, before the nested directory.
-    const isCancelled = vi.fn<(uploadId: string) => boolean>()
-    isCancelled.mockReturnValueOnce(false).mockReturnValue(true)
+    const isCancelled = vi.fn<(uploadId: string) => boolean>(() =>
+      runtimeEnvironmentCall.mock.calls.some(([call]) => call.method === 'files.createDirNoClobber')
+    )
 
     await expect(
       importExternalPathsToRuntime(
@@ -442,6 +443,54 @@ describe('runtime file client', () => {
       expect.objectContaining({
         method: 'files.delete',
         params: expect.objectContaining({ relativePath: 'uploads/empty', recursive: true })
+      })
+    )
+  })
+
+  it('stops an empty folder whose cancel lands while its last directory is being created', async () => {
+    fsStageExternalPathsForRuntimeUpload.mockResolvedValue({
+      sources: [
+        {
+          sourcePath: '/Users/me/empty',
+          status: 'staged',
+          name: 'empty',
+          kind: 'directory',
+          entries: [{ relativePath: '', kind: 'directory' }]
+        }
+      ]
+    })
+    let cancelled = false
+    runtimeEnvironmentCall.mockImplementation(async (call: { method: string }) => {
+      if (call.method === 'files.createDirNoClobber') {
+        cancelled = true
+        return okResponse('create-import-root')
+      }
+      return call.method === 'files.stat' ? notFoundResponse('stat-miss') : okResponse('ok')
+    })
+
+    const { results } = await importExternalPathsToRuntime(
+      {
+        settings: { activeRuntimeEnvironmentId: 'env-1' },
+        worktreeId: 'wt-1',
+        worktreePath: '/remote/repo'
+      },
+      ['/Users/me/empty'],
+      '/remote/repo/uploads',
+      { progress: { ...quietHandlers(), isCancelled: () => cancelled } }
+    )
+
+    expect(results).toEqual([
+      {
+        sourcePath: '/Users/me/empty',
+        status: 'failed',
+        reason: 'Upload cancelled',
+        cancelled: true
+      }
+    ])
+    expect(runtimeEnvironmentCall).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        method: 'files.delete',
+        params: expect.objectContaining({ relativePath: 'uploads/empty' })
       })
     )
   })

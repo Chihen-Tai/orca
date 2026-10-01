@@ -23,6 +23,7 @@ import {
 import { getActiveRuntimeTarget } from './runtime-rpc-client'
 import { toRuntimeWorktreeSelector } from './runtime-worktree-selector'
 import { importResultOutcome, runSshUploadWithProgress } from './ssh-upload-progress-client'
+import { UPLOAD_CANCELLED_REASON } from '../../../shared/ssh-import-cancel-reason'
 import {
   createRuntimeUploadProgressTracker,
   sumSourceUploadBytes,
@@ -159,11 +160,6 @@ export async function importExternalPathsToRuntime(
         for (const entry of source.entries) {
           const entryRelativePath = joinRuntimeRelativePath(destRelativePath, entry.relativePath)
           if (entry.kind === 'directory') {
-            // Why: only file streams reach main's cancel registry, so a source made
-            // of empty directories would otherwise finish despite the cancel.
-            if (sourceUploadId && handlers?.isCancelled?.(sourceUploadId)) {
-              throw new Error('Upload cancelled')
-            }
             await callRuntimeFileImportMutation(
               importSession,
               'files.createDirNoClobber',
@@ -175,6 +171,11 @@ export async function importExternalPathsToRuntime(
             )
             if (source.kind === 'directory' && entry.relativePath === '') {
               createdDirectoryImportRoot = entryRelativePath
+            }
+            // Why: only file streams reach main's cancel registry, so a source of empty
+            // directories checks here — after each create, so one cancelled mid-request stops too.
+            if (sourceUploadId && handlers?.isCancelled?.(sourceUploadId)) {
+              throw new Error(UPLOAD_CANCELLED_REASON)
             }
             continue
           }
