@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { useDelayedStatus } from '@/hooks/use-delayed-status'
 import { translate } from '@/i18n/i18n'
 import { extractIpcErrorMessage } from '@/lib/ipc-error'
 import { isMissingRuntimePathError } from '@/runtime/runtime-file-metadata-client'
@@ -124,8 +123,16 @@ export function useFileExplorerHostBrowser({
 
   const listing = current?.listing ?? null
   const loading = sessionKey !== null && (current === null || current.pendingPath !== null)
-  const showLoading =
-    useDelayedStatus(sessionKey ?? '', loading ? true : null, HOST_LOADING_SHOW_DELAY_MS) === true
+  const [delayedLoadingKey, setDelayedLoadingKey] = useState<string | null>(null)
+  useEffect(() => {
+    setDelayedLoadingKey(null)
+    if (!loading || sessionKey === null) {
+      return
+    }
+    const timer = setTimeout(() => setDelayedLoadingKey(sessionKey), HOST_LOADING_SHOW_DELAY_MS)
+    return () => clearTimeout(timer)
+  }, [loading, sessionKey])
+  const showLoading = loading && delayedLoadingKey === sessionKey
   const currentPath = listing?.resolvedPath ?? null
   const parent = currentPath ? parentPath(currentPath, listing?.pathFlavor ?? 'posix') : null
   const canNavigateUp = !loading && currentPath !== null && parent !== currentPath

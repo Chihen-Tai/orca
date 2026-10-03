@@ -1,5 +1,9 @@
+import type { TmuxManagedPty } from '../shared/tmux-agent-hook-owner'
 /* oxlint-disable max-lines */
 import { resolveSynchronizedOutputSafeSplit } from '../shared/terminal-synchronized-output-scan'
+import { restoreManagedDataAccountEnvironment } from '../shared/managed-data-account-environment'
+import { createTerminalTitleTracker } from '../shared/terminal-output-side-effects'
+import { getDecorativeTitleGateKey } from '../shared/agent-decorative-title-signature'
 import { FreebuffStatusProjection } from './freebuff-status-projection'
 import { applyRelayAgentWorkspaceTrust } from './agent-workspace-trust-spawn'
 import type { IPty } from 'node-pty'
@@ -126,7 +130,12 @@ import {
   injectRelayHistoryEnv
 } from './terminal-history'
 import { isFlattenedNodePtyLoaderMessage } from '../main/orcad/node-pty-loader-diagnosis'
-import { collectNodePtyUnavailableDiagnosis } from './node-pty-binding-survey'
+import {
+  collectNodePtyUnavailableDiagnosis,
+  resolveNodePtyInstallDir
+} from './node-pty-binding-survey'
+import { describeRelayRuntime } from './relay-runtime-identity'
+import { relayConptyDllSpawnOptions } from './relay-windows-conpty'
 import {
   formatNodePtyUnavailableMessage,
   toTerminalUnavailableCause
@@ -241,6 +250,7 @@ type ManagedPty = {
   wslDistro?: string
   shellCwd?: string
   shellPathEnv?: string
+  agentLaunchToken?: string
   envToDelete: string[]
   gitCredentialPromptGuarded: boolean
   historyIsolationEnabled?: boolean
@@ -642,6 +652,10 @@ export class PtyHandler {
     }
   }
 
+  private conptyDllSpawnOptions(): { useConptyDll: true } | Record<string, never> {
+    return relayConptyDllSpawnOptions(this.relayNodePtyDir(), describeRelayRuntime().kind)
+  }
+
   /** Where the relay's own node-pty lives — the deployed bundle dir, never cwd. */
   private relayNodePtyDir(): string {
     // Packaged relays live under Resources/relay while runtime dependencies are
@@ -662,9 +676,10 @@ export class PtyHandler {
    * healthy relay never pays for them.
    */
   private async nodePtyUnavailableError(spawnError?: unknown): Promise<Error> {
-    const nodePtyDir = this.relayNodePtyDir()
+    // Why: diagnose the install the bare import loaded; the bundle's own dir is only the fallback.
+    const nodePtyDir = resolveNodePtyInstallDir(__dirname) ?? this.relayNodePtyDir()
     const diagnosis = await collectNodePtyUnavailableDiagnosis({
-      nodePtyDir: existsSync(nodePtyDir) ? nodePtyDir : null,
+      nodePtyDir,
       error: spawnError ?? this.lastPtyLoadError
     })
     return Object.assign(new Error(formatNodePtyUnavailableMessage(diagnosis)), {
@@ -715,6 +730,12 @@ export class PtyHandler {
     return this.graceTimeMs
   }
 
+  private agentPresenceTrigger: ((paneKey: string) => void) | null = null
+
+  setAgentPresenceTrigger(listener: ((paneKey: string) => void) | null): void {
+    this.agentPresenceTrigger = listener
+  }
+
   /** Subscribe to PTY-exit events (relay-hook server uses this to evict per-paneKey caches). */
   setExitListener(listener: PtyExitListener | null): void {
     this.exitListener = listener
@@ -731,6 +752,39 @@ export class PtyHandler {
    *  paneKey since. Nothing this pane emits can belong to a surface any client still owns. */
   isPaneSurfaceRetired(paneKey: string): boolean {
     return this.retiredPaneSurfaces.isRetired(paneKey)
+  }
+
+  getTmuxManagedPty(paneKey: string): TmuxManagedPty | null {
+    if (process.platform === 'win32' || this.isPaneSurfaceRetired(paneKey)) {
+      return null
+    }
+    const root = this.getCurrentManagedPty(paneKey)
+    if (!root?.worktreeId || !root.pty.pid) {
+      return null
+    }
+    return {
+      pid: root.pty.pid,
+      incarnation: root.incarnationId,
+      scope: {
+        executionHostId: 'local',
+        wslDistro: null,
+        workspaceId: root.worktreeId,
+        workspaceKind: root.worktreeId.startsWith('folder:') ? 'folder' : 'git-worktree'
+      }
+    }
+  }
+
+  getAgentLaunchToken(paneKey: string): string | undefined {
+    return this.isPaneSurfaceRetired(paneKey)
+      ? undefined
+      : this.getCurrentManagedPty(paneKey)?.agentLaunchToken
+  }
+
+  private getCurrentManagedPty(paneKey: string): ManagedPty | undefined {
+    const candidates = [...this.ptys.values()].filter(
+      (pty) => !pty.disposed && (pty.paneKey ?? pty.attachIdentity?.paneKey) === paneKey
+    )
+    return candidates.length === 1 ? candidates[0] : undefined
   }
 
   /** Notified when the last PTY leaves the pool, so the relay can re-arm its idle grace. */
@@ -804,9 +858,13 @@ export class PtyHandler {
     },
     envToDelete: readonly string[] = []
   ): Promise<Record<string, string>> {
-    const baseEnv = mergeGitConfigEnvProtocol(
+    const inheritedEnv = stripInheritedBuildModeEnv(process.env)
+    restoreManagedDataAccountEnvironment(inheritedEnv)
+    const explicitEnv = { ...rendererEnv }
+    restoreManagedDataAccountEnvironment(explicitEnv, false)
+    const mergedEnv = mergeGitConfigEnvProtocol(
       {
-        ...stripInheritedBuildModeEnv(process.env),
+        ...inheritedEnv,
         TERM: 'xterm-256color',
         COLORTERM: 'truecolor',
         TERM_PROGRAM: 'Orca',
@@ -814,8 +872,13 @@ export class PtyHandler {
           rendererEnv?.ORCA_APP_VERSION || process.env.ORCA_APP_VERSION || '0.0.0-dev',
         FORCE_HYPERLINK: '1'
       },
-      rendererEnv
-    ) as Record<string, string>
+      explicitEnv
+    )
+    const baseEnv: Record<string, string> = Object.fromEntries(
+      Object.entries(mergedEnv).filter(
+        (entry): entry is [string, string] => typeof entry[1] === 'string'
+      )
+    )
     const augmented: Record<string, string> = {}
     for (const augmenter of this.envAugmenters) {
       try {
@@ -826,7 +889,11 @@ export class PtyHandler {
         )
       }
     }
-    const result = mergeGitConfigEnvProtocol(baseEnv, augmented) as Record<string, string>
+    const result: Record<string, string> = Object.fromEntries(
+      Object.entries(mergeGitConfigEnvProtocol(baseEnv, augmented)).filter(
+        (entry): entry is [string, string] => typeof entry[1] === 'string'
+      )
+    )
     result[ORCA_IMAGE_PROTOCOL_ENV] = ORCA_IMAGE_PROTOCOL_VALUE
     // Why: an older client may not ask a newly upgraded relay to delete inherited shim state.
     stripLegacyTerminalShimEnv(result, process.platform)
@@ -1019,7 +1086,25 @@ export class PtyHandler {
         }
       })
     }
+    const recheckAgentPresence = (): void => {
+      if (managed.paneKey) {
+        this.agentPresenceTrigger?.(managed.paneKey)
+      }
+    }
+    let lastTitleGateKey: string | null = null
+    const presenceTriggers = createTerminalTitleTracker({
+      onTitle: (normalizedTitle, rawTitle, meta) => {
+        // Why: spinner frames arrive several times a second; only a real title change re-checks.
+        const gateKey = getDecorativeTitleGateKey(rawTitle, normalizedTitle)
+        if (gateKey !== lastTitleGateKey && !meta?.staleWorkingTitleClear) {
+          recheckAgentPresence()
+        }
+        lastTitleGateKey = gateKey
+      },
+      onCommandFinished: recheckAgentPresence
+    })
     managed.pty.onData((data: string) => {
+      presenceTriggers.handleChunk(data)
       const startup = managed.startupCommand
       if (startup?.waitForShellReady && startup.outputScanState && !startup.delivered) {
         const scanned = scanShellStartupOutput(startup.outputScanState, data)
@@ -1041,6 +1126,7 @@ export class PtyHandler {
       }
     })
     managed.pty.onExit(({ exitCode }: { exitCode: number }) => {
+      presenceTriggers.dispose()
       managed.physicalExit?.markExited()
       if (managed.disposed) {
         return
@@ -2002,6 +2088,11 @@ export class PtyHandler {
     // includes Homebrew, nvm, and user-installed CLIs (claude, codex, gh).
     // When overlays are injected, the launch wrapper keeps those paths after
     // user startup files re-export their defaults.
+    const ptyEnv: Record<string, string> = {
+      ...spawnEnv,
+      [SHELL_STARTUP_FEATURE_ENV]: '',
+      ...shellLaunch.env
+    }
     let term: IPty
     try {
       term = pty.spawn(shell, shellLaunch.args, {
@@ -2012,11 +2103,8 @@ export class PtyHandler {
         cwd,
         // Why the empty default: relay shells inherit process.env, and the launch
         // config is the only thing allowed to name features for this shell.
-        env: {
-          ...spawnEnv,
-          [SHELL_STARTUP_FEATURE_ENV]: '',
-          ...shellLaunch.env
-        }
+        env: ptyEnv,
+        ...this.conptyDllSpawnOptions()
       })
     } catch (error) {
       // Why: Windows loads conpty.node only on first spawn, so handle that late binding failure here.
@@ -2069,6 +2157,7 @@ export class PtyHandler {
       ...(terminalWindowsWslDistro ? { wslDistro: terminalWindowsWslDistro } : {}),
       shellCwd: cwd,
       shellPathEnv: spawnEnv.PATH,
+      agentLaunchToken: ptyEnv.ORCA_AGENT_LAUNCH_TOKEN?.trim() || undefined,
       ownerBackend: resolvePtyOwnerBackend({
         platform: process.platform,
         shellPath: shell,
@@ -3128,6 +3217,11 @@ export class PtyHandler {
     const shellLaunch = getRelayShellLaunchConfig(shell, spawnEnv, process.platform, {
       terminalWindowsWslDistro
     })
+    const ptyEnv: Record<string, string> = {
+      ...spawnEnv,
+      [SHELL_STARTUP_FEATURE_ENV]: '',
+      ...shellLaunch.env
+    }
     let term: IPty
     try {
       term = ptyMod.spawn(shell, shellLaunch.args, {
@@ -3136,11 +3230,8 @@ export class PtyHandler {
         rows: entry.rows,
         cwd: entry.cwd,
         // Why: no provider-delivered command is waiting for a ready marker.
-        env: {
-          ...spawnEnv,
-          [SHELL_STARTUP_FEATURE_ENV]: '',
-          ...shellLaunch.env
-        }
+        env: ptyEnv,
+        ...this.conptyDllSpawnOptions()
       })
     } catch (error) {
       // Why skip rather than retry the host default shell: the stored override
@@ -3170,6 +3261,7 @@ export class PtyHandler {
         limit: REPLAY_BUFFER_MAX
       }),
       paneKey: entry.paneKey,
+      agentLaunchToken: ptyEnv.ORCA_AGENT_LAUNCH_TOKEN?.trim() || undefined,
       tabId: entry.tabId,
       attachIdentity: entry.attachIdentity,
       worktreeId: entry.worktreeId,
