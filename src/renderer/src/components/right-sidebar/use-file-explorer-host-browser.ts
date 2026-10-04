@@ -15,11 +15,13 @@ import { openHostFile } from './file-explorer-host-open'
 
 // Why: local listings land in a few ms; a spinner that short reads as a glitch (STYLEGUIDE UX rule 1).
 const HOST_LOADING_SHOW_DELAY_MS = 200
+// Why: once shown, a spinner that vanishes a few ms later flickers just the same.
+const HOST_LOADING_MIN_VISIBLE_MS = 400
 
 export type FileExplorerHostBrowser = {
   listing: HostDirectoryListing | null
   loading: boolean
-  /** `loading` once it has outlasted HOST_LOADING_SHOW_DELAY_MS; drives visible spinners. */
+  /** `loading` once it has outlasted HOST_LOADING_SHOW_DELAY_MS, held for HOST_LOADING_MIN_VISIBLE_MS; drives visible spinners. */
   showLoading: boolean
   error: string | null
   canNavigateUp: boolean
@@ -123,16 +125,35 @@ export function useFileExplorerHostBrowser({
 
   const listing = current?.listing ?? null
   const loading = sessionKey !== null && (current === null || current.pendingPath !== null)
-  const [delayedLoadingKey, setDelayedLoadingKey] = useState<string | null>(null)
+  const [shownLoadingKey, setShownLoadingKey] = useState<string | null>(null)
+  const shownLoadingAtRef = useRef(0)
   useEffect(() => {
-    setDelayedLoadingKey(null)
-    if (!loading || sessionKey === null) {
+    if (sessionKey === null) {
+      setShownLoadingKey(null)
       return
     }
-    const timer = setTimeout(() => setDelayedLoadingKey(sessionKey), HOST_LOADING_SHOW_DELAY_MS)
+    if (loading) {
+      if (shownLoadingKey === sessionKey) {
+        return
+      }
+      const timer = setTimeout(() => {
+        shownLoadingAtRef.current = Date.now()
+        setShownLoadingKey(sessionKey)
+      }, HOST_LOADING_SHOW_DELAY_MS)
+      return () => clearTimeout(timer)
+    }
+    if (shownLoadingKey === null) {
+      return
+    }
+    if (shownLoadingKey !== sessionKey) {
+      setShownLoadingKey(null)
+      return
+    }
+    const remaining = HOST_LOADING_MIN_VISIBLE_MS - (Date.now() - shownLoadingAtRef.current)
+    const timer = setTimeout(() => setShownLoadingKey(null), Math.max(0, remaining))
     return () => clearTimeout(timer)
-  }, [loading, sessionKey])
-  const showLoading = loading && delayedLoadingKey === sessionKey
+  }, [loading, sessionKey, shownLoadingKey])
+  const showLoading = sessionKey !== null && shownLoadingKey === sessionKey
   const currentPath = listing?.resolvedPath ?? null
   const parent = currentPath ? parentPath(currentPath, listing?.pathFlavor ?? 'posix') : null
   const canNavigateUp = !loading && currentPath !== null && parent !== currentPath

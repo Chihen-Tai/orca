@@ -260,4 +260,34 @@ describe('useFileExplorerHostBrowser', () => {
       vi.useRealTimers()
     }
   })
+
+  it('keeps a shown spinner visible for the minimum hold after the listing lands', async () => {
+    vi.useFakeTimers()
+    try {
+      await render({ active: true })
+      let resolveListing: (listing: HostDirectoryListing) => void = () => {}
+      fetchListingMock.mockImplementationOnce(
+        () => new Promise<HostDirectoryListing>((resolve) => (resolveListing = resolve))
+      )
+
+      await run(() => latest.navigate('/slow'))
+      await act(async () => {
+        vi.advanceTimersByTime(250)
+      })
+      expect(latest.showLoading).toBe(true)
+
+      await act(async () => {
+        resolveListing(listingFor('/slow'))
+      })
+      expect(latest.loading).toBe(false)
+      expect(latest.showLoading).toBe(true)
+
+      await act(async () => {
+        vi.advanceTimersByTime(400)
+      })
+      expect(latest.showLoading).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })
