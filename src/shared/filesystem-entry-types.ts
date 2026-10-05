@@ -13,7 +13,7 @@ export type HostDirectoryListing = {
   pathFlavor: FilesystemPathFlavor
 }
 
-/** Host-mode Explorer clicks: only a local `file` outside the workspace gets a (single-file) path grant. */
+/** Host-mode Explorer clicks: classification only; external files open read-only as user-named files. */
 export type HostBrowseEntryResolution = {
   kind: 'directory' | 'file' | 'unsupported'
   realPath: string

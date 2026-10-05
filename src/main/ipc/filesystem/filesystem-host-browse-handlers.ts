@@ -8,7 +8,6 @@ import type {
 } from '../../../shared/filesystem-entry-types'
 import { browseServerDirectory } from '../../runtime/runtime-server-environment-commands'
 import { requireSshFilesystemProvider } from '../../providers/ssh-filesystem-dispatch'
-import { authorizeExternalPath } from '../filesystem-auth'
 
 async function canonicalRelativePath(
   realPath: string,
@@ -58,12 +57,6 @@ export async function resolveHostBrowseEntry(
   }
   if (!target.isFile()) {
     return { kind: 'unsupported', realPath, workspaceRelativePath }
-  }
-  // Why: workspace files are already allowed; granting them would only crowd the LRU.
-  if (workspaceRelativePath === null) {
-    // Why: a rename between stat and grant is accepted; winning it needs local write
-    // access that the grant would not add.
-    authorizeExternalPath(targetPath)
   }
   return { kind: 'file', realPath, workspaceRelativePath }
 }

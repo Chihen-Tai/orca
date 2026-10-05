@@ -12,22 +12,14 @@ const resolveHostBrowseEntry = vi.fn()
 const sshBrowseDir = vi.fn()
 const listFiles = vi.fn()
 const search = vi.fn()
-const authorizeExternalPath = vi.fn()
 
 beforeEach(() => {
-  for (const mock of [
-    browseHostDir,
-    resolveHostBrowseEntry,
-    sshBrowseDir,
-    listFiles,
-    search,
-    authorizeExternalPath
-  ]) {
+  for (const mock of [browseHostDir, resolveHostBrowseEntry, sshBrowseDir, listFiles, search]) {
     mock.mockReset()
   }
   vi.stubGlobal('window', {
     api: {
-      fs: { browseHostDir, resolveHostBrowseEntry, listFiles, search, authorizeExternalPath },
+      fs: { browseHostDir, resolveHostBrowseEntry, listFiles, search },
       ssh: { browseDir: sshBrowseDir }
     }
   })
@@ -66,7 +58,6 @@ describe('fetchHostDirectoryListing', () => {
 
     await expect(fetchHostDirectoryListing({ kind: 'local' }, '/home/allen')).resolves.toBe(listing)
     expect(browseHostDir).toHaveBeenCalledWith({ dirPath: '/home/allen' })
-    expect(authorizeExternalPath).not.toHaveBeenCalled()
     expect(listFiles).not.toHaveBeenCalled()
     expect(search).not.toHaveBeenCalled()
   })
@@ -121,7 +112,6 @@ describe('resolveHostEntry', () => {
       workspaceRoot: root,
       connectionId: 'ssh-1'
     })
-    expect(authorizeExternalPath).not.toHaveBeenCalled()
   })
 })
 

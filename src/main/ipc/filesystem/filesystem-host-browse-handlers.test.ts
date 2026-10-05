@@ -71,12 +71,12 @@ describe('host browse handlers', () => {
     )
   })
 
-  it('grants a regular file only, never its parent directory', async () => {
+  it('classifies a regular file outside the workspace without granting it', async () => {
     const file = join(root, 'outside', 'notes.txt')
     const resolution = await resolveHostBrowseEntry(file)
 
     expect(resolution).toEqual({ kind: 'file', realPath: file, workspaceRelativePath: null })
-    expect(isPathAllowed(file, store)).toBe(true)
+    expect(isPathAllowed(file, store)).toBe(false)
     expect(isPathAllowed(join(root, 'outside'), store)).toBe(false)
     expect(isPathAllowed(join(root, 'outside', 'nested'), store)).toBe(false)
   })
