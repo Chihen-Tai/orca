@@ -4,8 +4,13 @@ import {
   cancelRuntimeUpload,
   forgetRuntimeUploadCancellation,
   forgetRuntimeUploadCancellationsForSender,
+  registerCancellableUpload,
   scopeRuntimeUploadId
 } from './runtime-upload-cancellation'
+import {
+  RUNTIME_UPLOAD_PROGRESS_CHANNEL,
+  throttleRuntimeUploadProgress
+} from './runtime-upload-progress'
 
 type CancelSender = Pick<WebContents, 'id' | 'once' | 'removeListener'>
 
@@ -55,4 +60,33 @@ export function registerRuntimeUploadCancelHandlers(): void {
       forgetRuntimeUploadCancellation(scopeRuntimeUploadId(event.sender.id, uploadId))
     }
   })
+}
+
+/** Progress and cancel wiring for one runtime upload stream; null when the renderer sent no id. */
+export function trackRuntimeUploadForSender(
+  sender: Pick<WebContents, 'id' | 'isDestroyed' | 'send'>,
+  uploadId: string | undefined,
+  fileSequence: number | undefined
+): {
+  cancelSignal: AbortSignal
+  onProgress: (progress: { sentBytes: number; totalBytes: number }) => void
+  release: () => void
+} | null {
+  if (!uploadId) {
+    return null
+  }
+  // Why: replies to the frame that asked, so a second window's drop cannot
+  // move this one's progress bar.
+  const emit = throttleRuntimeUploadProgress((progress) => {
+    if (!sender.isDestroyed()) {
+      sender.send(RUNTIME_UPLOAD_PROGRESS_CHANNEL, progress)
+    }
+  })
+  const cancellation = registerCancellableUpload(scopeRuntimeUploadId(sender.id, uploadId))
+  return {
+    cancelSignal: cancellation.signal,
+    onProgress: ({ sentBytes, totalBytes }) =>
+      emit({ uploadId, sentBytes, totalBytes, fileSequence }),
+    release: cancellation.release
+  }
 }

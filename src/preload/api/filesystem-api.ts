@@ -1,4 +1,5 @@
 import type { PathExistenceResult } from '../../shared/path-existence-batch'
+import type { RuntimeFileReadChunkResult } from '../../shared/runtime-types'
 import type { SearchOptions, SearchResult } from '../../shared/code-search-types'
 import type {
   DirEntry,
@@ -18,6 +19,7 @@ import type {
 } from '../../shared/local-log-tail-types'
 import type { SshMutationExpectation } from '../../shared/ssh-types'
 import type { RemoteDownloadProgress } from '../../shared/remote-download-progress'
+import type { LocalFileAccess } from '../../shared/local-file-access'
 import type {
   CreateVenvResult,
   KernelFrameEvent,
@@ -38,11 +40,19 @@ export type ExportApi = {
 
 export type FilesystemApi = {
   fs: {
+    readFileChunk: (args: {
+      filePath: string
+      connectionId?: string
+      access?: LocalFileAccess
+      offset: number
+      length: number
+    }) => Promise<RuntimeFileReadChunkResult>
     readDir: (args: { dirPath: string; connectionId?: string }) => Promise<DirEntry[]>
     readFile: (args: {
       filePath: string
       connectionId?: string
       includeLocalLogMetadata?: boolean
+      access?: LocalFileAccess
     }) => Promise<{
       content: string
       isBinary: boolean
@@ -93,6 +103,7 @@ export type FilesystemApi = {
         filePath: string
         content: string
         connectionId?: string
+        access?: LocalFileAccess
       } & SshMutationExpectation
     ) => Promise<void>
     createFile: (
@@ -109,6 +120,7 @@ export type FilesystemApi = {
         oldPath: string
         newPath: string
         connectionId?: string
+        access?: LocalFileAccess
       } & SshMutationExpectation
     ) => Promise<void>
     copy: (
@@ -125,16 +137,20 @@ export type FilesystemApi = {
         recursive?: boolean
       } & SshMutationExpectation
     ) => Promise<void>
-    authorizeExternalPath: (args: { targetPath: string }) => Promise<void>
     stat: (args: {
       filePath: string
       connectionId?: string
+      access?: LocalFileAccess
     }) => Promise<{ size: number; isDirectory: boolean; mtime: number }>
     pathsExist?: (args: {
       filePaths: string[]
       connectionId?: string
     }) => Promise<PathExistenceResult[]>
-    pathExists: (args: { filePath: string; connectionId?: string }) => Promise<boolean>
+    pathExists: (args: {
+      filePath: string
+      connectionId?: string
+      access?: LocalFileAccess
+    }) => Promise<boolean>
     listFiles: (args: {
       rootPath: string
       connectionId?: string
@@ -154,6 +170,7 @@ export type FilesystemApi = {
         ensureDir?: boolean
         /** Per-source ids for SSH upload progress and cancel; see fs:uploadProgress. */
         uploadIds?: Record<string, string>
+        access?: LocalFileAccess
       } & SshMutationExpectation
     ) => Promise<{ results: ImportItemResult[] }>
     stageExternalPathsForRuntimeUpload: (args: {

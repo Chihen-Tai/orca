@@ -32,6 +32,8 @@ import {
   stopIfCancelled,
   wasStoppedByCancel
 } from './runtime-upload-progress-tracker'
+import type { LocalFileAccess } from '../../../shared/local-file-access'
+import { localAccess } from './runtime-file-read-client'
 
 export async function importExternalPathsToRuntime(
   context: RuntimeFileOperationArgs,
@@ -41,6 +43,8 @@ export async function importExternalPathsToRuntime(
     ensureDestinationDir?: boolean
     assertCurrent?: () => void
     progress?: RuntimeImportProgressHandlers
+    /** Local imports only; remote destinations stay root-relative. */
+    access?: LocalFileAccess
   }
 ): Promise<{ results: ImportItemResult[] }> {
   const target = getActiveRuntimeTarget(context.settings)
@@ -57,7 +61,8 @@ export async function importExternalPathsToRuntime(
             destDir: destinationDir,
             connectionId: context.connectionId,
             ensureDir: options?.ensureDestinationDir,
-            ...(uploadIds ? { uploadIds } : {})
+            ...(uploadIds ? { uploadIds } : {}),
+            ...localAccess(context.connectionId, options?.access)
           })
         ),
       importResultOutcome

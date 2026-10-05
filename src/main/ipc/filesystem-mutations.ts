@@ -3,12 +3,20 @@ import { constants } from 'node:fs'
 import { copyFile, mkdir, writeFile } from 'node:fs/promises'
 import { basename, dirname } from 'node:path'
 import type { Store } from '../persistence'
-import { resolveAuthorizedPath } from './filesystem-auth'
+import {
+  resolveDesktopAuthorizedPath,
+  resolveLocalRenamePaths,
+  resolveLocalRequestPath
+} from './local-file-access-resolution'
+import type { LocalFileAccess } from '../../shared/local-file-access'
 import { requireSshFilesystemProvider } from '../providers/ssh-filesystem-dispatch'
 import { resolveLocalDroppedPathsForAgent } from './dropped-path-resolution'
 import { importExternalPathsSsh } from './filesystem-import-ssh'
 import { toSshImportProgressTarget } from './filesystem-import-ssh-progress'
-import { registerRuntimeUploadCancelHandlers } from './runtime-upload-cancel-ipc'
+import {
+  registerRuntimeUploadCancelHandlers,
+  trackRuntimeUploadForSender
+} from './runtime-upload-cancel-ipc'
 import type { SshMutationExpectation } from '../../shared/ssh-types'
 import { assertSshMutationExpectation } from '../ssh/ssh-connection-generation'
 import { renameLocalPathSerializedByDestination } from '../destination-serialized-local-rename'
@@ -27,11 +35,6 @@ import {
 import { streamExternalFileToRuntime } from './runtime-upload-file-stream'
 import { abortWhenRendererGone } from './renderer-lifetime-abort'
 import { sweepAbandonedRuntimeUploadTempPath } from './runtime-upload-temp-sweep'
-import {
-  RUNTIME_UPLOAD_PROGRESS_CHANNEL,
-  throttleRuntimeUploadProgress
-} from './runtime-upload-progress'
-import { registerCancellableUpload, scopeRuntimeUploadId } from './runtime-upload-cancellation'
 import type { RuntimeUploadFileStreamRequest } from '../../shared/runtime-upload-staging-contract'
 import { resolveEnvironment } from '../../shared/runtime-environment-store'
 
@@ -56,7 +59,7 @@ export function registerFilesystemMutationHandlers(store: Store): void {
         const provider = requireSshFilesystemProvider(args.connectionId)
         return provider.createFile(args.filePath)
       }
-      const filePath = await resolveAuthorizedPath(args.filePath, store)
+      const filePath = await resolveDesktopAuthorizedPath(args.filePath, store)
       await mkdir(dirname(filePath), { recursive: true })
       try {
         // Use the 'wx' flag for atomic create-if-not-exists, avoiding TOCTOU races
@@ -83,7 +86,7 @@ export function registerFilesystemMutationHandlers(store: Store): void {
         const provider = requireSshFilesystemProvider(args.connectionId)
         return provider.createDir(args.dirPath)
       }
-      const dirPath = await resolveAuthorizedPath(args.dirPath, store)
+      const dirPath = await resolveDesktopAuthorizedPath(args.dirPath, store)
       await assertNotExists(dirPath)
       await mkdir(dirPath, { recursive: true })
     }
@@ -96,7 +99,12 @@ export function registerFilesystemMutationHandlers(store: Store): void {
     'fs:rename',
     async (
       _event,
-      args: { oldPath: string; newPath: string; connectionId?: string } & SshMutationExpectation
+      args: {
+        oldPath: string
+        newPath: string
+        connectionId?: string
+        access?: LocalFileAccess
+      } & SshMutationExpectation
     ): Promise<void> => {
       assertSshMutationExpectation(
         args.connectionId,
@@ -114,9 +122,14 @@ export function registerFilesystemMutationHandlers(store: Store): void {
       // target file (potentially elsewhere in the worktree) and leave the
       // symlink dangling. newPath must also preserve its leaf so we don't
       // accidentally write into a symlinked destination name.
-      const oldPath = await resolveAuthorizedPath(args.oldPath, store, { preserveSymlink: true })
-      const newPath = await resolveAuthorizedPath(args.newPath, store, { preserveSymlink: true })
-      await renameLocalPathSerializedByDestination(oldPath, newPath)
+      // Outside every project, a document the user opened may still be renamed, to any path.
+      const { from, to } = await resolveLocalRenamePaths(
+        args.oldPath,
+        args.newPath,
+        args.access,
+        store
+      )
+      await renameLocalPathSerializedByDestination(from, to)
     }
   )
 
@@ -140,10 +153,10 @@ export function registerFilesystemMutationHandlers(store: Store): void {
         const provider = requireSshFilesystemProvider(args.connectionId)
         return provider.copy(args.sourcePath, args.destinationPath)
       }
-      const sourcePath = await resolveAuthorizedPath(args.sourcePath, store, {
+      const sourcePath = await resolveDesktopAuthorizedPath(args.sourcePath, store, {
         preserveSymlink: true
       })
-      const destinationPath = await resolveAuthorizedPath(args.destinationPath, store, {
+      const destinationPath = await resolveDesktopAuthorizedPath(args.destinationPath, store, {
         preserveSymlink: true
       })
       await mkdir(dirname(destinationPath), { recursive: true })
@@ -163,6 +176,7 @@ export function registerFilesystemMutationHandlers(store: Store): void {
         connectionId?: string
         ensureDir?: boolean
         uploadIds?: Record<string, string>
+        access?: LocalFileAccess
       } & SshMutationExpectation
     ): Promise<{ results: ImportItemResult[] }> => {
       assertSshMutationExpectation(
@@ -189,7 +203,13 @@ export function registerFilesystemMutationHandlers(store: Store): void {
       // destination is outside allowed roots, the entire import fails.
       // This only applies to local imports — remote paths are authorized by
       // the SSH connection boundary (see importExternalPathsSsh).
-      const resolvedDest = await resolveAuthorizedPath(args.destDir, store)
+      // An image inserted into a document the user opened lands in that document's own folder.
+      const resolvedDest = await resolveLocalRequestPath(
+        args.destDir,
+        args.access,
+        store,
+        'import-into'
+      )
 
       const results: ImportItemResult[] = []
       const reservedNames = new Set<string>()
@@ -242,30 +262,14 @@ export function registerFilesystemMutationHandlers(store: Store): void {
       // move in main, a reload or close has to stop the transfer explicitly,
       // or a multi-GB upload outlives the window that asked for it.
       const lifetime = abortWhenRendererGone(event.sender)
-      const uploadId = args.uploadId
-      // Why: replies to the frame that asked, so a second window's drop cannot
-      // move this one's progress bar.
-      const emit = uploadId
-        ? throttleRuntimeUploadProgress((progress) => {
-            if (!event.sender.isDestroyed()) {
-              event.sender.send(RUNTIME_UPLOAD_PROGRESS_CHANNEL, progress)
-            }
-          })
-        : null
-      const cancellation = uploadId
-        ? registerCancellableUpload(scopeRuntimeUploadId(event.sender.id, uploadId))
-        : null
+      const tracking = trackRuntimeUploadForSender(event.sender, args.uploadId, args.fileSequence)
       try {
         return await streamExternalFileToRuntime({
           ...request,
           userDataPath,
           signal: lifetime.signal,
-          cancelSignal: cancellation?.signal,
-          onProgress:
-            emit && uploadId
-              ? ({ sentBytes, totalBytes }) =>
-                  emit({ uploadId, sentBytes, totalBytes, fileSequence: args.fileSequence })
-              : undefined
+          cancelSignal: tracking?.cancelSignal,
+          onProgress: tracking?.onProgress
         })
       } catch (error) {
         if (lifetime.signal.aborted) {
@@ -275,7 +279,7 @@ export function registerFilesystemMutationHandlers(store: Store): void {
         }
         throw error
       } finally {
-        cancellation?.release()
+        tracking?.release()
         lifetime.dispose()
       }
     }
