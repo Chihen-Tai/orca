@@ -5,6 +5,7 @@ import { join } from 'node:path'
 
 import type { SFTPWrapper } from 'ssh2'
 import { downloadFileViaSftp, downloadFolderViaSftp } from './ssh-filesystem-download'
+import { withSftpDirectoryHandles } from './sftp-directory-test-fixture'
 
 function asSftp(fake: object): SFTPWrapper {
   // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: fakes implement only the SFTP calls the download path makes.
@@ -111,11 +112,16 @@ describe('SFTP download progress', () => {
     const onFileCompleted = vi.fn()
     const onTotalBytes = vi.fn()
 
-    await downloadFolderViaSftp(async () => asSftp(sftp), '/remote/src', join(root, 'src'), {
-      onTotalBytes,
-      onBytesTransferred,
-      onFileCompleted
-    })
+    await downloadFolderViaSftp(
+      async () => withSftpDirectoryHandles(sftp),
+      '/remote/src',
+      join(root, 'src'),
+      {
+        onTotalBytes,
+        onBytesTransferred,
+        onFileCompleted
+      }
+    )
 
     expect(onTotalBytes).toHaveBeenCalledWith(12)
     expect(onFileCompleted).toHaveBeenCalledTimes(2)
@@ -156,10 +162,15 @@ describe('SFTP download progress', () => {
     sftp.fastGet = vi.fn((...args: Parameters<typeof plainFastGet>) => {
       void firstFileGate.promise.then(() => plainFastGet(...args))
     })
-    await downloadFolderViaSftp(async () => asSftp(sftp), '/remote/src', join(root, 'src'), {
-      onTotalBytes,
-      onBytesTransferred: vi.fn()
-    })
+    await downloadFolderViaSftp(
+      async () => withSftpDirectoryHandles(sftp),
+      '/remote/src',
+      join(root, 'src'),
+      {
+        onTotalBytes,
+        onBytesTransferred: vi.fn()
+      }
+    )
 
     expect(onTotalBytes).toHaveBeenCalledWith(12)
     expect(sftp.fastGet).toHaveBeenCalledTimes(2)
@@ -172,12 +183,17 @@ describe('SFTP download progress', () => {
     process.on('unhandledRejection', unhandled)
     const sftp = folderSftp()
     try {
-      await downloadFolderViaSftp(async () => asSftp(sftp), '/remote/src', join(root, 'src'), {
-        onTotalBytes: () => {
-          throw new Error('observer failed')
-        },
-        onBytesTransferred: vi.fn()
-      })
+      await downloadFolderViaSftp(
+        async () => withSftpDirectoryHandles(sftp),
+        '/remote/src',
+        join(root, 'src'),
+        {
+          onTotalBytes: () => {
+            throw new Error('observer failed')
+          },
+          onBytesTransferred: vi.fn()
+        }
+      )
       await new Promise((resolve) => setTimeout(resolve, 0))
     } finally {
       process.off('unhandledRejection', unhandled)
@@ -199,10 +215,15 @@ describe('SFTP download progress', () => {
     })
     const onTotalBytes = vi.fn()
 
-    await downloadFolderViaSftp(async () => asSftp(sftp), '/remote/src', join(root, 'src'), {
-      onTotalBytes,
-      onBytesTransferred: vi.fn()
-    })
+    await downloadFolderViaSftp(
+      async () => withSftpDirectoryHandles(sftp),
+      '/remote/src',
+      join(root, 'src'),
+      {
+        onTotalBytes,
+        onBytesTransferred: vi.fn()
+      }
+    )
     expect(sftp.fastGet).toHaveBeenCalledTimes(2)
     heldWalk?.()
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -219,10 +240,15 @@ describe('SFTP download progress', () => {
     )
     const onTotalBytes = vi.fn()
 
-    await downloadFolderViaSftp(async () => asSftp(sftp), '/remote/src', join(root, 'src'), {
-      onTotalBytes,
-      onBytesTransferred: vi.fn()
-    })
+    await downloadFolderViaSftp(
+      async () => withSftpDirectoryHandles(sftp),
+      '/remote/src',
+      join(root, 'src'),
+      {
+        onTotalBytes,
+        onBytesTransferred: vi.fn()
+      }
+    )
 
     expect(onTotalBytes).not.toHaveBeenCalled()
     expect(sftp.fastGet).toHaveBeenCalledTimes(2)
@@ -235,10 +261,15 @@ describe('SFTP download progress', () => {
     const sftp = folderSftp(() => controller.abort(new Error('Download canceled')))
 
     await expect(
-      downloadFolderViaSftp(async () => asSftp(sftp), '/remote/src', join(root, 'src'), {
-        signal: controller.signal,
-        onTotalBytes: vi.fn()
-      })
+      downloadFolderViaSftp(
+        async () => withSftpDirectoryHandles(sftp),
+        '/remote/src',
+        join(root, 'src'),
+        {
+          signal: controller.signal,
+          onTotalBytes: vi.fn()
+        }
+      )
     ).rejects.toThrow('Download canceled')
     expect(sftp.fastGet).not.toHaveBeenCalled()
   })

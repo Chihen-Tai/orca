@@ -47,7 +47,11 @@ export type FilesystemApi = {
       offset: number
       length: number
     }) => Promise<RuntimeFileReadChunkResult>
-    readDir: (args: { dirPath: string; connectionId?: string }) => Promise<DirEntry[]>
+    readDir: (args: {
+      dirPath: string
+      connectionId?: string
+      followSymlinks?: boolean
+    }) => Promise<DirEntry[]>
     readFile: (args: {
       filePath: string
       connectionId?: string
@@ -113,7 +117,11 @@ export type FilesystemApi = {
       } & SshMutationExpectation
     ) => Promise<void>
     createDir: (
-      args: { dirPath: string; connectionId?: string } & SshMutationExpectation
+      args: {
+        dirPath: string
+        connectionId?: string
+        followSymlinks?: boolean
+      } & SshMutationExpectation
     ) => Promise<void>
     rename: (
       args: {
@@ -158,10 +166,17 @@ export type FilesystemApi = {
       requestToken?: string
       maxResults?: number
       searchQuery?: string
+      candidatePaths?: string[]
+      includeIgnored?: boolean
+      allowLegacyIncludeIgnored?: boolean
+      followSymlinks?: boolean
       nameFilter?: string
     }) => Promise<string[]>
     cancelListFiles: (args: { requestToken: string }) => Promise<void>
-    search: (args: SearchOptions & { connectionId?: string }) => Promise<SearchResult>
+    cancelSearch: (args: { requestToken: string }) => Promise<void>
+    search: (
+      args: SearchOptions & { connectionId?: string; requestToken?: string }
+    ) => Promise<SearchResult>
     importExternalPaths: (
       args: {
         sourcePaths: string[]

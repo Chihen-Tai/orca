@@ -26,6 +26,7 @@ import { SshFilesystemProvider } from '../providers/ssh-filesystem-provider'
 import { isMethodNotFoundError } from './ssh-filesystem-stream-reader'
 import { SshGitProvider } from '../providers/ssh-git-provider'
 import { selectOpenCodePluginSources } from '../agent-hooks/opencode-plugin-settings'
+import { bindRemoteClaudeInterruptReconciliation } from './ssh-agent-hook-interrupt-reconciliation'
 import { agentHookServer } from '../agent-hooks/server'
 import { isAgentStatusHooksEnabled } from '../agent-hooks/managed-agent-hook-controls'
 import {
@@ -94,7 +95,7 @@ import type { OrcaRuntimeService } from '../runtime/orca-runtime'
 import {
   findTerminalTabIdForLeaf,
   hasHostAuthoritativeTerminalMembership
-} from '../runtime/workspace-session-terminal-membership-authority'
+} from '../persistence/terminal-topology/terminal-topology-membership'
 import { DEFAULT_PTY_SOURCE_WINDOW_SU } from '../../shared/pty-source-credit-contract'
 import { PTY_CONSUMER_STALE_OWNER_RECOVERY_ERROR } from '../../shared/pty-consumer-session'
 import {
@@ -323,6 +324,7 @@ export class SshRelaySession {
   private abortController: AbortController | null = null
   private muxDisposeCleanup: (() => void) | null = null
   // Why: hold the notification-handler disposer so teardownProviders can release it on reconnect/shutdown (symmetric with muxDisposeCleanup).
+  private remoteInterruptCleanup: (() => void) | null = null
   private muxNotificationCleanup: (() => void) | null = null
   private pluginSettingsCleanup: (() => void) | null = null
   private pluginInstallRetryTimer: ReturnType<typeof setTimeout> | null = null
@@ -1710,6 +1712,13 @@ export class SshRelaySession {
     }
     // Why: capture the disposer so teardownProviders can release this handler and re-wiring can't double-register it.
     this.muxNotificationCleanup?.()
+    this.remoteInterruptCleanup?.()
+    this.remoteInterruptCleanup = bindRemoteClaudeInterruptReconciliation(
+      agentHookServer,
+      mux,
+      this.targetId,
+      () => this.mux === mux
+    )
     this.muxNotificationCleanup = mux.onNotification((method, params) => {
       if (method !== AGENT_HOOK_NOTIFICATION_METHOD) {
         return
@@ -1726,6 +1735,7 @@ export class SshRelaySession {
       agentHookServer.ingestRemote(
         {
           paneKey: envelope.paneKey,
+          hostTurnRevision: envelope.hostTurnRevision,
           launchToken: typeof envelope.launchToken === 'string' ? envelope.launchToken : undefined,
           tabId: typeof envelope.tabId === 'string' ? envelope.tabId : undefined,
           worktreeId: typeof envelope.worktreeId === 'string' ? envelope.worktreeId : undefined,
@@ -1809,6 +1819,8 @@ export class SshRelaySession {
     this.leavePlainSshMode()
     this.muxNotificationCleanup?.()
     this.muxNotificationCleanup = null
+    this.remoteInterruptCleanup?.()
+    this.remoteInterruptCleanup = null
     for (const cleanup of this.ptyRecoveryNotificationCleanups) {
       cleanup()
     }
