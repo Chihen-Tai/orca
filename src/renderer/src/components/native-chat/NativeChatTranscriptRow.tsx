@@ -76,7 +76,7 @@ export const NativeChatTranscriptRow = memo(function NativeChatTranscriptRow({
       />
     )
   }
-  const { message, turnKey, status, receipt, turnDiff } = slot
+  const { message, turnKey, status, receipt, turnDiff, workRun } = slot
   const deliveryNotice = context.deliveryNotices?.get(message.id)
   const predecessors = context.taskListPredecessors.get(message.id)
   const expanded = turnKey ? context.expandedTurnIds.has(turnKey) : undefined
@@ -95,7 +95,7 @@ export const NativeChatTranscriptRow = memo(function NativeChatTranscriptRow({
     <div className={cn('flex flex-col gap-5', sectionClassName)}>
       {/* A turn with no user bubble carries its bar above its first row. */}
       {slot.statusAbove ? statusRow : null}
-      {receipt ? (
+      {!slot.drawsMessage ? null : receipt ? (
         <NativeChatResolutionReceipt body={receipt} disclosureId={message.id} />
       ) : (
         <MessageRow
@@ -103,7 +103,9 @@ export const NativeChatTranscriptRow = memo(function NativeChatTranscriptRow({
           previousTodoWrite={predecessors?.todowrite}
           previousUpdatePlan={predecessors?.update_plan}
           revealedDiff={
-            context.revealedDiff?.messageId === message.id ? context.revealedDiff : undefined
+            (workRun ?? [message]).some((member) => member.id === context.revealedDiff?.messageId)
+              ? (context.revealedDiff ?? undefined)
+              : undefined
           }
           expandSignal={context.expandSignal}
           activeTurnIsWorking={slot.activeTurnIsWorking}
@@ -112,7 +114,6 @@ export const NativeChatTranscriptRow = memo(function NativeChatTranscriptRow({
           onLinkClick={context.onLinkClick}
           allowFileUriLinks={context.allowFileUriLinks}
           deliveryNotice={deliveryNotice}
-          folded={slot.folded}
           subagentRoster={slot.subagentRoster}
           subagentDisclosure={context.subagentDisclosure}
           inSubagentSection={slot.depth > 0}
@@ -122,6 +123,7 @@ export const NativeChatTranscriptRow = memo(function NativeChatTranscriptRow({
               ? rewind
               : undefined
           }
+          workRun={workRun}
         />
       )}
       {slot.statusAbove ? null : statusRow}

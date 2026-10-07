@@ -1,5 +1,4 @@
-import { constants } from 'node:fs'
-import type { ReadStream } from 'node:fs'
+import { constants, type ReadStream } from 'node:fs'
 import { lstat, open, readdir, realpath } from 'node:fs/promises'
 import { isAbsolute, join as pathJoin, relative, sep } from 'node:path'
 import { finished } from 'node:stream/promises'
@@ -84,6 +83,10 @@ async function uploadFileAndJoinTeardown(
     writeStreamErrors = latchLateSftpStreamErrors(writeStream, remotePath)
     readStream = handle.createReadStream({ autoClose: false })
     observeSftpUpload(writeStream, readStream, options)
+    // Why: `finished` drops its listeners once the read ends; an abort (a quit's disconnect) that
+    // destroys the ended stream with the signal's reason would then emit an unhandled 'error' that
+    // takes main down mid-shutdown. The transfer's outcome is read from `finished`, not from here.
+    readStream.on('error', () => {})
     const abortTransfer = (): void => {
       const reason =
         options?.signal?.reason instanceof Error

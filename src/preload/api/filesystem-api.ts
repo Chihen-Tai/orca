@@ -28,6 +28,10 @@ import type {
   PythonEnvironments
 } from '../../shared/notebook-kernel-types'
 import type { RuntimeUploadFileStreamRequest } from '../../shared/runtime-upload-staging-contract'
+import type {
+  PrepareDroppedPathsRequest,
+  PreparedDroppedPaths
+} from '../../shared/native-file-drop-preparation'
 
 export type ExportApi = {
   htmlToPdf: (args: {
@@ -40,6 +44,8 @@ export type ExportApi = {
 
 export type FilesystemApi = {
   fs: {
+    getPathForFile?: (file: File) => string
+    prepareDroppedPaths: (args: PrepareDroppedPathsRequest) => Promise<PreparedDroppedPaths>
     readFileChunk: (args: {
       filePath: string
       connectionId?: string
@@ -60,6 +66,7 @@ export type FilesystemApi = {
     }) => Promise<{
       content: string
       isBinary: boolean
+      mediaUrl?: string
       isImage?: boolean
       mimeType?: string
       fileIdentity?: string
