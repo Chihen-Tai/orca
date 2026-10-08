@@ -1,6 +1,11 @@
 // The pieces every failure sentence is made of, in English. The host fills them in as they are;
 // desktop translates each piece whole with this as its fallback, so the two never differ.
 
+import {
+  CLAUDE_PROFILE_MISSING_MESSAGE,
+  CLAUDE_PROFILE_SETUP_FAILED_MESSAGE
+} from './claude-profile-routing'
+
 /** Sentences a refusal notice shows too, so a chat says them one way. */
 export const TERMINAL_AGENT_HOLDS_CHAT = 'This chat is still open in a terminal agent.'
 export const QUIT_TERMINAL_AGENT = 'Quit that agent to continue the chat here.'
@@ -14,12 +19,27 @@ export const AGENT_SESSION_FAILURE_COPY = {
   providerStartFailed: '{{agent}} stopped before it finished starting.',
   runCommandAgain: 'Run /{{command}} again.',
   sendToTryAgain: 'Send your message to try again.',
+  sendAgainToTryOnceMore: 'Send your message again to try once more.',
   couldNotStart: "{{agent}} couldn't start.",
   couldNotRestart: "{{agent}} couldn't restart.",
+  argumentsUnsupportedOption: 'Saved Arguments contain an unsupported option ({{option}}).',
+  argumentsMissingValue: 'Saved Arguments need a value for {{option}}.',
+  argumentsMultipleValues: 'Saved Arguments give {{option}} more than one value.',
+  argumentsPositionalPrompt: 'Saved Arguments include a prompt.',
+  editSavedArguments: 'Edit them in Settings > Agents > Arguments.',
   terminalAgentHoldsChat: TERMINAL_AGENT_HOLDS_CHAT,
   quitTerminalAgent: QUIT_TERMINAL_AGENT,
   startNewChat: START_NEW_CHAT,
   notSignedIn: '{{agent}} is not signed in for the selected account.',
+  claudeSystemNotSignedIn:
+    "Claude isn't signed in. Run `claude` and sign in with /login, or choose an account in Claude Accounts settings.",
+  claudeManagedNotSignedIn:
+    "This Claude account isn't signed in. Sign in again in Claude Accounts settings.",
+  codexSystemNotSignedIn: "Codex isn't signed in. Run `codex login`.",
+  codexManagedNotSignedIn:
+    "This Codex account isn't signed in. Sign in again in Codex Accounts settings.",
+  cliMissing:
+    "{{agent}} wasn't found on the computer running this chat. Install it, or check its Command in Settings → Agents.",
   signInFirst: 'Sign in first.',
   signInThenRunCommand: 'Sign in, then run /{{command}} again.',
   signInThenSend: 'Sign in, then send your message again.',
@@ -29,6 +49,14 @@ export const AGENT_SESSION_FAILURE_COPY = {
   accountSwitchInProgress: 'A Claude account switch is in progress. Try again after it finishes.',
   managedAccountUnsupported:
     'While a Claude account is added in WSL, Claude chats need a Windows Claude account.',
+  launchFolderMissing:
+    'The folder this chat ran in no longer exists. Restore it to continue this chat.',
+  historyInOtherAccount:
+    "This chat's history is in another Claude account. Switch back to that account to continue it.",
+  claudeAccountFolderMissing: CLAUDE_PROFILE_MISSING_MESSAGE,
+  claudeAccountSetupFailed: CLAUDE_PROFILE_SETUP_FAILED_MESSAGE,
+  agentCommandNotRunnable:
+    "{{agent}}'s Command in Settings → Agents must be a program path or name Orca can find, with no arguments or variables. Change it or reset it.",
   chooseClaudeAccount: 'Choose or add one in Claude Accounts settings.',
   chooseClaudeAccountThenRunCommand:
     'Choose or add one in Claude Accounts settings, then run /{{command}} again.',
@@ -81,8 +109,12 @@ export const AGENT_SESSION_FAILURE_COPY = {
   providerRateLimited: '{{agent}} is rate-limited and retrying.',
   providerRetrying: '{{agent}} hit a temporary problem and is retrying.',
   providerRetryingQuoted: '{{agent}} is retrying: {{detail}}.',
-  previousExitUnverifiable:
-    '{{agent}} from before may still be running. Your messages will send once it stops.'
+  providerRetryNumber: 'Retry {{attempt}}.',
+  providerRetryNumberOf: 'Retry {{attempt}} of {{maxRetries}}.',
+  providerRetryLastError: 'Last error: {{detail}}.',
+  previousExitUnverifiable: "Couldn't stop {{agent}} from before.",
+  sessionNotRestored:
+    "{{agent}} couldn't reopen its earlier session, so this chat continues in a new one. {{agent}} doesn't remember the earlier messages."
 } as const
 
 export type AgentSessionFailureCopyId = keyof typeof AGENT_SESSION_FAILURE_COPY
@@ -92,8 +124,11 @@ export type AgentSessionFailureCopyValues = {
   agent?: string
   command?: string
   detail?: string
+  option?: string
   limit?: string
   size?: string
+  attempt?: string
+  maxRetries?: string
 }
 
 /** One piece in the reader's language, placeholders filled. */
