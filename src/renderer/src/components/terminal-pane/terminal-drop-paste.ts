@@ -2,7 +2,6 @@ import type { PaneManager } from '@/lib/pane-manager/pane-manager'
 import type { PtyTransport } from './pty-transport'
 import type { captureTerminalDropTarget } from './terminal-drop-target'
 import { getCurrentTerminalDropTransport } from './terminal-drop-target'
-import type { resolveNativeTerminalDropPane } from './terminal-drop-pane-resolution'
 import { writeTerminalDropPathsToCapturedTarget } from './terminal-drop-path-writer'
 import { showTerminalDropWriteFailure } from './terminal-drop-write-failure'
 import { recordTerminalUserInputForLeaf } from './terminal-input-activity'
@@ -13,7 +12,7 @@ export type NativeDropFlowArgs = {
   dropTarget: ReturnType<typeof captureTerminalDropTarget>
   manager: PaneManager
   paneTransports: Map<number, PtyTransport>
-  pane: ReturnType<typeof resolveNativeTerminalDropPane> & {}
+  pane: { id: number; leafId: string }
   tabId: string
   worktreePath: string
   expectedSshTargetId?: string
@@ -47,8 +46,5 @@ export async function pasteResolvedDropPaths(
   showTerminalDropWriteFailure(writeResult.failureReason)
   if (writeResult.sentAnyPath) {
     recordTerminalUserInputForLeaf(args.tabId, args.pane.leafId)
-  }
-  if (writeResult.targetCurrent) {
-    args.pane.terminal.focus()
   }
 }

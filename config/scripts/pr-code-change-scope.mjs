@@ -193,7 +193,6 @@ const CROSS_VERSION_WIRE_PREFIXES = [
   // fingerprint the host's ledger and journal re-derive.
   'src/shared/structured-agent-session-mutation.ts',
   'src/shared/structured-agent-session-send-mutation.ts',
-  'src/shared/structured-agent-session-outbox.ts',
   'src/shared/agent-session-record',
   'src/shared/agent-session-provider-handle',
   'src/shared/agent-session-journal-',
@@ -373,6 +372,9 @@ const WINDOWS_PACKAGE_TESTS = [
   'src/main/agent-hooks/windows-hook-payload-delivery.test.ts',
   'src/main/jcode/hook-gate-script.test.ts',
   'src/main/agent-hooks/windows-direct-cmd-hook-command.test.ts',
+  'src/main/agent-hooks/windows-cmd-hook-command-unicode.test.ts',
+  'src/main/agent-hooks/windows-batch-hook-launcher.test.ts',
+  'src/main/agent-hooks/windows-powershell-hook-launcher.test.ts',
   'src/main/codex/windows-hook-command.test.ts',
   'src/main/codex/windows-hook-upgrade.test.ts',
   'src/main/codex/hook-service-managed-install.test.ts',
@@ -562,8 +564,17 @@ function isProductBundlePath(file, extraPrefixes) {
   return matchesPrefix(file, extraPrefixes)
 }
 
+// This shared fixture is consumed only by unit suites and their placement rig.
+export function isUnitTestSupportSource(file) {
+  return file === 'src/renderer/src/runtime/web-session-tabs-sync-test-harness.ts'
+}
+
 function isTestFile(file) {
-  return /\.(?:test|spec)\.(?:js|cjs|mjs|ts|tsx)$/.test(file) || file.includes('/__tests__/')
+  return (
+    isUnitTestSupportSource(file) ||
+    /\.(?:test|spec)\.(?:js|cjs|mjs|ts|tsx)$/.test(file) ||
+    file.includes('/__tests__/')
+  )
 }
 
 function isDesktopIrrelevantPath(file) {
