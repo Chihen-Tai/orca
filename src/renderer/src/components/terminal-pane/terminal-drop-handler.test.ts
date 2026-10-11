@@ -84,9 +84,9 @@ vi.mock('./terminal-input-activity', () => ({
 }))
 
 import {
-  endRuntimeUploadSession,
-  getRuntimeUploadSession
-} from '@/runtime/runtime-upload-session-state'
+  endTransferSession,
+  getTransferSession
+} from '@/components/transfer-progress/transfer-session-state'
 import { handleTerminalFileDrop } from './terminal-drop-handler'
 import { wrapTerminalBracketedPasteText } from './terminal-bracketed-paste'
 
@@ -134,6 +134,17 @@ function announceRowThenResolve(value: unknown) {
   }
 }
 
+const EXPECTED_IMPORT_OPTIONS = {
+  assertCurrent: expect.any(Function),
+  progress: {
+    onStart: expect.any(Function),
+    onRowProgress: expect.any(Function),
+    onRowSettled: expect.any(Function),
+    onFinish: expect.any(Function),
+    isCancelled: expect.any(Function)
+  }
+}
+
 /** Points the store at one SSH-backed repo whose only worktree is `wt-1`. */
 function stubSshRepo(
   connectionId: string,
@@ -150,10 +161,19 @@ function stubSshRepo(
   mocks.storeState.sshConnectionStates = new Map([[connectionId, sshState]])
 }
 
+function stubLocalRepo(repoPath: string, worktreePath = repoPath): void {
+  mocks.storeState.repos = [
+    { id: 'repo1', connectionId: null, path: repoPath, executionHostId: 'local' }
+  ]
+  mocks.storeState.worktreesByRepo = {
+    repo1: [{ id: 'wt-1', repoId: 'repo1', path: worktreePath, hostId: 'local' }]
+  }
+}
+
 describe('handleTerminalFileDrop', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    endRuntimeUploadSession('session-1')
+    endTransferSession('session-1')
     mocks.storeState.activeRepoId = 'repo1'
     mocks.storeState.activeWorktreeId = 'wt-1'
     vi.stubGlobal('window', {
@@ -227,16 +247,7 @@ describe('handleTerminalFileDrop', () => {
       },
       ['/Users/me/logo.png'],
       '/remote/repo/.orca/drops',
-      {
-        assertCurrent: expect.any(Function),
-        progress: {
-          onStart: expect.any(Function),
-          onRowProgress: expect.any(Function),
-          onRowSettled: expect.any(Function),
-          onFinish: expect.any(Function),
-          isCancelled: expect.any(Function)
-        }
-      }
+      EXPECTED_IMPORT_OPTIONS
     )
     expect(sendInput).toHaveBeenCalledWith(
       wrapTerminalBracketedPasteText('/remote/repo/.orca/drops/logo.png'),
@@ -246,7 +257,7 @@ describe('handleTerminalFileDrop', () => {
     expect(mocks.recordTerminalUserInputForLeaf).toHaveBeenCalledWith('tab-1', 'leaf-1')
     expect(mocks.toastError).not.toHaveBeenCalled()
     expect(mocks.toastCustom).toHaveBeenCalled()
-    const session = getRuntimeUploadSession('session-1')
+    const session = getTransferSession('session-1')
     expect(session?.settled).toBe(true)
     expect(session?.rows).toEqual([expect.objectContaining({ status: 'done', sentBytes: 10 })])
     // The panel holds briefly to show the outcome and dismisses itself; cutting
@@ -342,7 +353,7 @@ describe('handleTerminalFileDrop', () => {
 
     expect(mocks.toastDismiss).toHaveBeenCalledWith('toast-1')
     expect(mocks.toastError).toHaveBeenCalled()
-    expect(getRuntimeUploadSession('session-1')).toBeUndefined()
+    expect(getTransferSession('session-1')).toBeUndefined()
   })
 
   it('uses Windows shell paths for forward-slash UNC runtime worktrees', async () => {
@@ -397,16 +408,7 @@ describe('handleTerminalFileDrop', () => {
       },
       ['/Users/me/logo.png'],
       '\\\\server\\share\\repo\\.orca\\drops',
-      {
-        assertCurrent: expect.any(Function),
-        progress: {
-          onStart: expect.any(Function),
-          onRowProgress: expect.any(Function),
-          onRowSettled: expect.any(Function),
-          onFinish: expect.any(Function),
-          isCancelled: expect.any(Function)
-        }
-      }
+      EXPECTED_IMPORT_OPTIONS
     )
     expect(sendInput).toHaveBeenCalledWith(
       wrapTerminalBracketedPasteText('\\\\server\\share\\repo\\.orca\\drops\\logo.png'),
@@ -470,28 +472,14 @@ describe('handleTerminalFileDrop', () => {
       },
       ['/Users/me/spec.pdf'],
       '/remote/repo/.orca/drops',
-      {
-        assertCurrent: expect.any(Function),
-        progress: {
-          onStart: expect.any(Function),
-          onRowProgress: expect.any(Function),
-          onRowSettled: expect.any(Function),
-          onFinish: expect.any(Function),
-          isCancelled: expect.any(Function)
-        }
-      }
+      EXPECTED_IMPORT_OPTIONS
     )
     expect(sendInput).toHaveBeenCalledWith('/remote/repo/.orca/drops/spec.pdf ', 'driving')
   })
 
   it('keeps explicit local worktree drops local while a runtime is focused', async () => {
     mocks.storeState.settings = { activeRuntimeEnvironmentId: 'focused-runtime' }
-    mocks.storeState.repos = [
-      { id: 'repo1', connectionId: null, path: '/remote/repo', executionHostId: 'local' }
-    ]
-    mocks.storeState.worktreesByRepo = {
-      repo1: [{ id: 'wt-1', repoId: 'repo1', path: '/remote/repo', hostId: 'local' }]
-    }
+    stubLocalRepo('/remote/repo')
     const sendInput = vi.fn(() => true)
     const focus = vi.fn()
     const pane = { id: 1, leafId: 'leaf-1', terminal: { focus } }
@@ -524,24 +512,7 @@ describe('handleTerminalFileDrop', () => {
         localWindowsRuntimePreference: { kind: 'wsl', distro: 'Ubuntu' }
       }
     ]
-    mocks.storeState.repos = [
-      {
-        id: 'repo1',
-        connectionId: null,
-        path: 'C:\\Users\\alice\\repo',
-        executionHostId: 'local'
-      }
-    ]
-    mocks.storeState.worktreesByRepo = {
-      repo1: [
-        {
-          id: 'wt-1',
-          repoId: 'repo1',
-          path: 'C:\\Users\\alice\\repo\\feature',
-          hostId: parseExecutionHostId(mocks.storeState.repos[0]?.executionHostId)?.id ?? 'local'
-        }
-      ]
-    }
+    stubLocalRepo('C:\\Users\\alice\\repo', 'C:\\Users\\alice\\repo\\feature')
     const sendInput = vi.fn(() => true)
     const focus = vi.fn()
     const pane = { id: 1, leafId: 'leaf-1', terminal: { focus } }
@@ -579,19 +550,7 @@ describe('handleTerminalFileDrop', () => {
     mocks.storeState.projects = [
       { id: 'repo1', localWindowsRuntimePreference: { kind: 'wsl', distro: 'Ubuntu' } }
     ]
-    mocks.storeState.repos = [
-      { id: 'repo1', connectionId: null, path: 'C:\\Users\\alice\\repo', executionHostId: 'local' }
-    ]
-    mocks.storeState.worktreesByRepo = {
-      repo1: [
-        {
-          id: 'wt-1',
-          repoId: 'repo1',
-          path: 'C:\\Users\\alice\\repo',
-          hostId: parseExecutionHostId(mocks.storeState.repos[0]?.executionHostId)?.id ?? 'local'
-        }
-      ]
-    }
+    stubLocalRepo('C:\\Users\\alice\\repo')
     const sendInput = vi.fn(() => true)
     const pane = { id: 1, leafId: 'leaf-1', terminal: { focus: vi.fn() } }
 
@@ -614,12 +573,7 @@ describe('handleTerminalFileDrop', () => {
 
   it('uses acknowledged PTY writes for native local drops when available', async () => {
     mocks.storeState.settings = { activeRuntimeEnvironmentId: 'focused-runtime' }
-    mocks.storeState.repos = [
-      { id: 'repo1', connectionId: null, path: '/repo', executionHostId: 'local' }
-    ]
-    mocks.storeState.worktreesByRepo = {
-      repo1: [{ id: 'wt-1', repoId: 'repo1', path: '/repo', hostId: 'local' }]
-    }
+    stubLocalRepo('/repo')
     const sendInput = vi.fn(() => true)
     const sendInputAccepted = vi.fn(async () => true)
     const focus = vi.fn()
@@ -652,19 +606,7 @@ describe('handleTerminalFileDrop', () => {
 
   it('pastes native file drops into the pane captured by its element', async () => {
     mocks.storeState.settings = { activeRuntimeEnvironmentId: 'focused-runtime' }
-    mocks.storeState.repos = [
-      { id: 'repo1', connectionId: null, path: '/repo', executionHostId: 'local' }
-    ]
-    mocks.storeState.worktreesByRepo = {
-      repo1: [
-        {
-          id: 'wt-1',
-          repoId: 'repo1',
-          path: '/repo',
-          hostId: parseExecutionHostId(mocks.storeState.repos[0]?.executionHostId)?.id ?? 'local'
-        }
-      ]
-    }
+    stubLocalRepo('/repo')
     const activeSendInput = vi.fn(() => true)
     const targetSendInput = vi.fn(() => true)
     const activeFocus = vi.fn()

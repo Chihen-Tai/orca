@@ -29,7 +29,9 @@ import {
   sumSourceUploadBytes,
   type RuntimeImportProgressHandlers,
   type RuntimeImportProgressRow,
-  type RuntimeUploadProgressTracker
+  type RuntimeUploadProgressTracker,
+  stopIfCancelled,
+  wasStoppedByCancel
 } from './runtime-upload-progress-tracker'
 
 export async function importExternalPathsToRuntime(
@@ -114,7 +116,8 @@ export async function importExternalPathsToRuntime(
         uploadId: rowUploadId,
         name: source.name,
         totalBytes,
-        sourcePath: source.sourcePath
+        sourcePath: source.sourcePath,
+        kind: source.kind
       })
     }
     handlers.onStart(rows)
@@ -155,11 +158,10 @@ export async function importExternalPathsToRuntime(
         for (const entry of source.entries) {
           const entryRelativePath = joinRuntimeRelativePath(destRelativePath, entry.relativePath)
           if (entry.kind === 'directory') {
-            // Why: only file streams reach main's cancel registry, so a source made
-            // of empty directories would otherwise finish despite the cancel.
-            if (sourceUploadId && handlers?.isCancelled?.(sourceUploadId)) {
-              throw new Error('Upload cancelled')
-            }
+            // Why: only file streams reach main's cancel registry, so directories check here:
+            // before a create, so nothing new appears after a cancel, and after it, for one
+            // cancelled mid-request.
+            stopIfCancelled(handlers, sourceUploadId)
             await callRuntimeFileImportMutation(
               importSession,
               'files.createDirNoClobber',
@@ -172,6 +174,7 @@ export async function importExternalPathsToRuntime(
             if (source.kind === 'directory' && entry.relativePath === '') {
               createdDirectoryImportRoot = entryRelativePath
             }
+            stopIfCancelled(handlers, sourceUploadId)
             continue
           }
           const fileSequence = sourceUploadId ? nextFileSequence++ : undefined
@@ -231,15 +234,16 @@ export async function importExternalPathsToRuntime(
             15_000
           ).catch(() => {})
         }
+        const reason = error instanceof Error ? error.message : String(error)
         results.push({
           sourcePath: source.sourcePath,
           status: 'failed',
-          reason: error instanceof Error ? error.message : String(error),
-          // Why: marked per source, since a path dropped twice can be cancelled once.
-          ...(sourceUploadId && handlers?.isCancelled?.(sourceUploadId) ? { cancelled: true } : {})
+          reason,
+          // Why: per source, since a path dropped twice can be cancelled once.
+          ...(wasStoppedByCancel(handlers, sourceUploadId, reason) ? { cancelled: true } : {})
         })
-        // Why: reported as failed even for a cancel — the store keeps the row's
-        // already-set 'cancelled' state, so the user's own action is not relabelled.
+        // Why: reported as failed even for a cancel; the upload panel maps a failed source the
+        // user cancelled to 'cancelled', so the user's own action is not relabelled.
         if (sourceUploadId) {
           handlers?.onRowSettled(sourceUploadId, 'failed')
         }

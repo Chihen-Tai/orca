@@ -66,6 +66,7 @@ export type RuntimeImportProgressRow = {
   name: string
   totalBytes: number
   sourcePath: string
+  kind?: 'file' | 'directory'
 }
 
 export type RuntimeImportProgressHandlers = {
@@ -88,4 +89,30 @@ export function sumSourceUploadBytes(source: {
     }
   }
   return total
+}
+
+// Why: matches main's RuntimeUploadCancelledError, so a cancel reads the same from either side.
+const UPLOAD_CANCELLED_REASON = 'Upload cancelled'
+
+/** The user's cancel is what stopped this source, not a failure that came after the click. */
+export function wasStoppedByCancel(
+  handlers: RuntimeImportProgressHandlers | undefined,
+  uploadId: string | undefined,
+  reason: string
+): boolean {
+  return (
+    uploadId !== undefined &&
+    handlers?.isCancelled?.(uploadId) === true &&
+    reason === UPLOAD_CANCELLED_REASON
+  )
+}
+
+/** Throws the cancel reason once the user cancelled this source's row. */
+export function stopIfCancelled(
+  handlers: RuntimeImportProgressHandlers | undefined,
+  uploadId: string | undefined
+): void {
+  if (uploadId !== undefined && handlers?.isCancelled?.(uploadId) === true) {
+    throw new Error(UPLOAD_CANCELLED_REASON)
+  }
 }

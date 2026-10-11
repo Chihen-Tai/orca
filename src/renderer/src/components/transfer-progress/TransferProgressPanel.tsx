@@ -1,39 +1,47 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
-import { ChevronDownIcon, FileIcon, UploadIcon, XIcon } from 'lucide-react'
+import {
+  ChevronDownIcon,
+  DownloadIcon,
+  FileIcon,
+  FolderIcon,
+  UploadIcon,
+  XIcon
+} from 'lucide-react'
 import { Progress } from '@/components/ui/progress'
 import { cn } from '@/lib/utils'
 import { translate } from '@/i18n/i18n'
 import {
-  getRuntimeUploadSession,
-  subscribeToRuntimeUploadSessions,
-  summarizeRuntimeUploadSession,
-  toggleRuntimeUploadCollapsed,
-  type RuntimeUploadRow
-} from '@/runtime/runtime-upload-session-state'
-import { formatTransferredOfTotal, toRowPercent } from './terminal-drop-upload-progress'
-import { formatTerminalDropUploadHeading } from './terminal-drop-upload-heading'
+  getTransferSession,
+  subscribeToTransferSessions,
+  summarizeTransferSession,
+  toggleTransferCollapsed,
+  type TransferDirection,
+  type TransferRow
+} from './transfer-session-state'
+import { formatTransferredOfTotal, toRowPercent } from './transfer-progress-format'
+import { formatTransferProgressHeading } from './transfer-progress-heading'
 
-// Long enough to read the outcome, short enough not to linger over the terminal.
+// Long enough to read the outcome, short enough not to linger over the workspace.
 const SETTLED_HOLD_MS = 1200
 const EXIT_ANIMATION_MS = 200
 
 type Props = {
   sessionId: string
-  onCancel: (uploadId: string) => void
+  onCancel: (transferId: string) => void
   /** Closes the toast; the panel owns the timing so the exit is not cut short. */
   onDismiss: () => void
   /** Re-issues the toast: sonner re-measures height only on a new element identity. */
   onLayoutChange: () => void
 }
 
-export function TerminalDropUploadToast({
+export function TransferProgressPanel({
   sessionId,
   onCancel,
   onDismiss,
   onLayoutChange
 }: Props): React.JSX.Element | null {
-  const session = useSyncExternalStore(subscribeToRuntimeUploadSessions, () =>
-    getRuntimeUploadSession(sessionId)
+  const session = useSyncExternalStore(subscribeToTransferSessions, () =>
+    getTransferSession(sessionId)
   )
   const [leaving, setLeaving] = useState(false)
   const settled = session?.settled === true
@@ -60,8 +68,10 @@ export function TerminalDropUploadToast({
     return null
   }
   const collapsed = session.collapsed
-  const summary = summarizeRuntimeUploadSession(session)
-  const heading = formatTerminalDropUploadHeading({
+  const summary = summarizeTransferSession(session)
+  const DirectionIcon = session.direction === 'upload' ? UploadIcon : DownloadIcon
+  const heading = formatTransferProgressHeading({
+    direction: session.direction,
     rowCount: session.rows.length,
     settled: session.settled,
     doneCount: summary.doneCount,
@@ -82,28 +92,25 @@ export function TerminalDropUploadToast({
     >
       <div className="flex items-center gap-3 px-3 py-2.5">
         <span className="flex size-7 shrink-0 items-center justify-center rounded-full border border-border">
-          <UploadIcon className="size-3.5" aria-hidden />
+          <DirectionIcon className="size-3.5" aria-hidden />
         </span>
         <span className="min-w-0 flex-1 truncate text-sm">{heading}</span>
         {/* Fixed width so the row never reflows as the number gains digits. */}
         <span className="w-9 shrink-0 text-right text-sm tabular-nums text-muted-foreground">
-          {session.settled ? '' : `${summary.percent}%`}
+          {session.settled || summary.percent === null ? '' : `${summary.percent}%`}
         </span>
         <button
           type="button"
           hidden={session.settled}
           onClick={() => {
-            toggleRuntimeUploadCollapsed(sessionId)
+            toggleTransferCollapsed(sessionId)
             onLayoutChange()
           }}
           aria-expanded={!collapsed}
           aria-label={
             collapsed
-              ? translate('auto.components.terminal.pane.terminal.drop.upload.expand', 'Show files')
-              : translate(
-                  'auto.components.terminal.pane.terminal.drop.upload.collapse',
-                  'Hide files'
-                )
+              ? translate('transferProgress.showItems', 'Show items')
+              : translate('transferProgress.hideItems', 'Hide items')
           }
           className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
@@ -120,7 +127,12 @@ export function TerminalDropUploadToast({
       {!collapsed && (
         <ul className="border-t border-border">
           {session.rows.map((row) => (
-            <UploadRowItem key={row.uploadId} row={row} onCancel={onCancel} />
+            <TransferRowItem
+              key={row.transferId}
+              row={row}
+              direction={session.direction}
+              onCancel={onCancel}
+            />
           ))}
         </ul>
       )}
@@ -128,19 +140,24 @@ export function TerminalDropUploadToast({
   )
 }
 
-function UploadRowItem({
+function TransferRowItem({
   row,
+  direction,
   onCancel
 }: {
-  row: RuntimeUploadRow
-  onCancel: (uploadId: string) => void
+  row: TransferRow
+  direction: TransferDirection
+  onCancel: (transferId: string) => void
 }): React.JSX.Element {
-  const percent = toRowPercent(row)
-  const inactive = row.status !== 'uploading'
+  // Why: without a known total a percentage would read as 0% forever; show bytes alone.
+  // A finished row still reads 100%, even an empty file or folder.
+  const percent = row.status === 'done' || row.totalBytes > 0 ? toRowPercent(row) : null
+  const inactive = row.status !== 'active'
+  const RowIcon = row.kind === 'directory' ? FolderIcon : FileIcon
 
   return (
     <li className="flex items-center gap-3 px-3 py-2.5">
-      <FileIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+      <RowIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
       <span className="flex min-w-0 flex-1 flex-col gap-0.5 overflow-hidden">
         <span className={cn('truncate text-[13px]', inactive && 'text-muted-foreground')}>
           {row.name}
@@ -151,20 +168,32 @@ function UploadRowItem({
       </span>
       {/* Dimmed through a wrapper: <Progress> owns its own effects. */}
       <div className={cn('w-24 shrink-0', inactive && 'opacity-40')}>
-        <Progress value={percent} aria-label={row.name} className="h-1.5" />
+        {percent === null && !inactive ? (
+          // Why: bytes are moving toward a total not known yet; a bar parked at 0 reads as stuck.
+          <div
+            role="progressbar"
+            aria-label={row.name}
+            className="h-1.5 overflow-hidden rounded-full bg-primary/20"
+          >
+            <div className="h-full w-2/5 animate-[skill-update-slide_1.35s_ease-in-out_infinite] rounded-full bg-primary motion-reduce:w-full motion-reduce:animate-none motion-reduce:opacity-40" />
+          </div>
+        ) : (
+          <Progress value={percent ?? 0} aria-label={row.name} className="h-1.5" />
+        )}
       </div>
       <span className="w-9 shrink-0 text-right text-[13px] tabular-nums text-muted-foreground">
-        {percent}%
+        {percent === null ? '' : `${percent}%`}
       </span>
       {/* Cancel is a back-out, not a destructive action: ghost, no color. */}
       <button
         type="button"
         disabled={inactive}
-        onClick={() => onCancel(row.uploadId)}
-        aria-label={translate(
-          'auto.components.terminal.pane.terminal.drop.upload.cancel',
-          'Cancel upload'
-        )}
+        onClick={() => onCancel(row.transferId)}
+        aria-label={
+          direction === 'upload'
+            ? translate('transferProgress.cancelUpload', 'Cancel upload')
+            : translate('transferProgress.cancelDownload', 'Cancel download')
+        }
         className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-0"
       >
         <XIcon className="size-4" />
@@ -173,12 +202,18 @@ function UploadRowItem({
   )
 }
 
-function rowSubLabel(row: RuntimeUploadRow): string {
+function rowSubLabel(row: TransferRow): string {
+  if (row.status === 'cancelling') {
+    return translate('transferProgress.cancelling', 'Cancelling…')
+  }
+  if (row.status === 'unconfirmed') {
+    return translate('transferProgress.cancelUnconfirmed', 'Cancel sent; remote state unconfirmed')
+  }
   if (row.status === 'cancelled') {
-    return translate('auto.components.terminal.pane.terminal.drop.upload.cancelled', 'Cancelled')
+    return translate('transferProgress.cancelled', 'Cancelled')
   }
   if (row.status === 'failed') {
-    return translate('auto.components.terminal.pane.terminal.drop.upload.failed', 'Failed')
+    return translate('transferProgress.failed', 'Failed')
   }
   return formatTransferredOfTotal(row.sentBytes, row.totalBytes)
 }

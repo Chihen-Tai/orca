@@ -11,6 +11,7 @@ import {
   installRuntimeFileClientEnvironment
 } from './runtime-file-client-test-harness'
 import type { RuntimeImportProgressHandlers } from './runtime-upload-progress-tracker'
+import type { ImportItemResult } from '../../../shared/filesystem-import-result-types'
 
 installRuntimeFileClientEnvironment()
 
@@ -61,6 +62,40 @@ type UploadRequest = {
 
 function uploadRequests(): UploadRequest[] {
   return fsUploadExternalFileToRuntime.mock.calls.flat()
+}
+
+function quietHandlers(): RuntimeImportProgressHandlers {
+  return { onStart: vi.fn(), onRowProgress: vi.fn(), onRowSettled: vi.fn(), onFinish: vi.fn() }
+}
+
+/** One staged file whose upload rejects with `error` after the user clicked Cancel on its row. */
+async function importFileThatThrowsAfterCancel(error: string): Promise<ImportItemResult[]> {
+  fsStageExternalPathsForRuntimeUpload.mockResolvedValue({
+    sources: [
+      {
+        sourcePath: '/Users/me/clip.mp4',
+        status: 'staged',
+        name: 'clip.mp4',
+        kind: 'file',
+        entries: [stagedFile('', 10, 7)]
+      }
+    ]
+  })
+  runtimeEnvironmentCall.mockImplementation(async (call: { method: string }) =>
+    call.method === 'files.stat' ? notFoundResponse('stat-miss') : okResponse('ok')
+  )
+  fsUploadExternalFileToRuntime.mockRejectedValueOnce(new Error(error))
+  const { results } = await importExternalPathsToRuntime(
+    {
+      target: { kind: 'environment' as const, environmentId: 'env-1' },
+      worktreeId: 'wt-1',
+      worktreePath: '/remote/repo'
+    },
+    ['/Users/me/clip.mp4'],
+    '/remote/repo/uploads',
+    { progress: { ...quietHandlers(), isCancelled: () => true } }
+  )
+  return results
 }
 
 const identityOf = (entry: Record<string, unknown>): Record<string, unknown> => ({
@@ -296,6 +331,9 @@ describe('runtime file client', () => {
     expect(progress.onRowSettled).toHaveBeenCalledWith(uploadId, 'done')
     expect(progress.onFinish).toHaveBeenCalledTimes(1)
     expect(fsReleaseRuntimeUpload).toHaveBeenCalledWith({ uploadId })
+    // Why: a release that raced ahead of a later file's stream would forget that file's cancel.
+    const lastUpload = Math.max(...fsUploadExternalFileToRuntime.mock.invocationCallOrder)
+    expect(fsReleaseRuntimeUpload.mock.invocationCallOrder[0]).toBeGreaterThan(lastUpload)
   })
 
   it('gives each copy of a path dropped twice its own row and file sequence', async () => {
@@ -372,8 +410,9 @@ describe('runtime file client', () => {
       .mockResolvedValueOnce(okResponse('create-import-root'))
       .mockResolvedValueOnce(okResponse('delete-import-root'))
     // The user cancels after the root exists, before the nested directory.
-    const isCancelled = vi.fn<(uploadId: string) => boolean>()
-    isCancelled.mockReturnValueOnce(false).mockReturnValue(true)
+    const isCancelled = vi.fn<(uploadId: string) => boolean>(() =>
+      runtimeEnvironmentCall.mock.calls.some(([call]) => call.method === 'files.createDirNoClobber')
+    )
 
     await expect(
       importExternalPathsToRuntime(
@@ -406,6 +445,104 @@ describe('runtime file client', () => {
         params: expect.objectContaining({ relativePath: 'uploads/empty', recursive: true })
       })
     )
+  })
+
+  it('stops an empty folder whose cancel lands while its last directory is being created', async () => {
+    fsStageExternalPathsForRuntimeUpload.mockResolvedValue({
+      sources: [
+        {
+          sourcePath: '/Users/me/empty',
+          status: 'staged',
+          name: 'empty',
+          kind: 'directory',
+          entries: [{ relativePath: '', kind: 'directory' }]
+        }
+      ]
+    })
+    let cancelled = false
+    runtimeEnvironmentCall.mockImplementation(async (call: { method: string }) => {
+      if (call.method === 'files.createDirNoClobber') {
+        cancelled = true
+        return okResponse('create-import-root')
+      }
+      return call.method === 'files.stat' ? notFoundResponse('stat-miss') : okResponse('ok')
+    })
+
+    const { results } = await importExternalPathsToRuntime(
+      {
+        target: { kind: 'environment' as const, environmentId: 'env-1' },
+        worktreeId: 'wt-1',
+        worktreePath: '/remote/repo'
+      },
+      ['/Users/me/empty'],
+      '/remote/repo/uploads',
+      { progress: { ...quietHandlers(), isCancelled: () => cancelled } }
+    )
+
+    expect(results).toEqual([
+      {
+        sourcePath: '/Users/me/empty',
+        status: 'failed',
+        reason: 'Upload cancelled',
+        cancelled: true
+      }
+    ])
+    expect(runtimeEnvironmentCall).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        method: 'files.delete',
+        params: expect.objectContaining({ relativePath: 'uploads/empty' })
+      })
+    )
+  })
+
+  it('creates nothing on the runtime when cancel lands before the first directory', async () => {
+    fsStageExternalPathsForRuntimeUpload.mockResolvedValue({
+      sources: [
+        {
+          sourcePath: '/Users/me/empty',
+          status: 'staged',
+          name: 'empty',
+          kind: 'directory',
+          entries: [{ relativePath: '', kind: 'directory' }]
+        }
+      ]
+    })
+    runtimeEnvironmentCall.mockImplementation(async (call: { method: string }) =>
+      call.method === 'files.stat' ? notFoundResponse('stat-miss') : okResponse('ok')
+    )
+
+    const { results } = await importExternalPathsToRuntime(
+      {
+        target: { kind: 'environment' as const, environmentId: 'env-1' },
+        worktreeId: 'wt-1',
+        worktreePath: '/remote/repo'
+      },
+      ['/Users/me/empty'],
+      '/remote/repo/uploads',
+      { progress: { ...quietHandlers(), isCancelled: () => true } }
+    )
+
+    expect(results[0]).toMatchObject({ status: 'failed', cancelled: true })
+    expect(runtimeEnvironmentCall).not.toHaveBeenCalledWith(
+      expect.objectContaining({ method: 'files.createDirNoClobber' })
+    )
+  })
+
+  it('marks a cancelled file cancelled through the IPC error wrapper', async () => {
+    const [result] = await importFileThatThrowsAfterCancel(
+      "Error invoking remote method 'fs:uploadExternalFileToRuntime': Error: Upload cancelled"
+    )
+
+    expect(result).toMatchObject({ status: 'failed', cancelled: true })
+  })
+
+  it('reports a failure that came after the cancel click as a failure', async () => {
+    const [result] = await importFileThatThrowsAfterCancel(
+      "Error invoking remote method 'fs:uploadExternalFileToRuntime': Error: Remote connection dropped"
+    )
+
+    expect(result?.status).toBe('failed')
+    expect(result).not.toHaveProperty('cancelled')
   })
 
   it('does not commit an upload when the owner generation changes while it streams', async () => {

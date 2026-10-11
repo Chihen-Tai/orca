@@ -60,9 +60,11 @@ vi.mock('@/runtime/runtime-file-client', () => ({
   ) => mocks.runImport(options.progress)
 }))
 vi.mock('./terminal-drop-paste', () => ({ pasteResolvedDropPaths: vi.fn() }))
-vi.mock('./TerminalDropUploadToast', () => ({ TerminalDropUploadToast: () => null }))
+vi.mock('@/components/transfer-progress/TransferProgressPanel', () => ({
+  TransferProgressPanel: () => null
+}))
 
-import { getRuntimeUploadSession } from '@/runtime/runtime-upload-session-state'
+import { getTransferSession } from '@/components/transfer-progress/transfer-session-state'
 import { uploadRuntimeDropPaths } from './terminal-runtime-drop-upload'
 
 function setActiveWorktree(activeWorktreeId: string | null): void {
@@ -137,7 +139,7 @@ describe('uploadRuntimeDropPaths panel scope', () => {
 
     expect(toast.custom).not.toHaveBeenCalled()
     // Nothing is left to replay a "done" notice on return.
-    expect(getRuntimeUploadSession('session-1')).toBeUndefined()
+    expect(getTransferSession('session-1')).toBeUndefined()
     expect(mocks.store.listeners.size).toBe(0)
   })
 
@@ -153,16 +155,16 @@ describe('uploadRuntimeDropPaths panel scope', () => {
     // A fresh toast, not an update of the one sonner is animating out.
     expect(vi.mocked(toast.custom).mock.calls[1]?.[1]).not.toHaveProperty('id')
     // Still shown, so the panel keeps its outcome hold before closing itself.
-    expect(getRuntimeUploadSession('session-1')?.settled).toBe(true)
+    expect(getTransferSession('session-1')?.settled).toBe(true)
   })
 
   it('ends a finished drop when the user leaves during the outcome hold', async () => {
     await dropOneFile()
-    expect(getRuntimeUploadSession('session-1')?.settled).toBe(true)
+    expect(getTransferSession('session-1')?.settled).toBe(true)
 
     setActiveWorktree('wt-b')
 
-    expect(getRuntimeUploadSession('session-1')).toBeUndefined()
+    expect(getTransferSession('session-1')).toBeUndefined()
     expect(mocks.store.listeners.size).toBe(0)
   })
 
