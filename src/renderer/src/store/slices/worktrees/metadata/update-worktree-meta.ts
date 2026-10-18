@@ -16,7 +16,7 @@ import { displayNameUpdatePinsLabel } from '../../../../../../shared/worktree/di
 import { parseWorkspaceKey } from '../../../../../../shared/workspace-scope'
 import { applyWorktreeUpdates, getRepoIdFromWorktreeId } from '../../worktree-helpers'
 import { getHostedReviewCacheKey } from '../../hosted-review-cache-identity'
-import { getGitHubPRCacheKey, getLegacyGitHubPRCacheKey } from '../../github-cache-key'
+import { getGitHubPRCacheKeyCandidates } from '../../../../../../shared/github/github-cache-key'
 import {
   applyDetectedWorktreeUpdates,
   findKnownWorktreeById,
@@ -33,10 +33,8 @@ import {
 } from './hosted-review-push-target'
 import { persistWorktreeMeta } from './worktree-meta-persist'
 import { isRuntimeSelectorNotFoundError } from '../listing/runtime-worktree-rpc-errors'
-import {
-  settingsForWorktreeOwner,
-  trySettingsForWorktreeOwner
-} from '../listing/worktree-owner-settings'
+import { runtimeTargetForWorktreeOwner } from '../listing/worktree-owner-target'
+import { runtimeTargetForWorkspaceOwner } from '@/lib/resolve-owner'
 
 import { findRepoForHost } from '../../repo-host-identity'
 export function createUpdateWorktreeMeta(
@@ -98,17 +96,20 @@ export function createUpdateWorktreeMeta(
       ? normalizedUpdates.linkedPR
       : null
     // Why: an ambiguous owner must not throw past this update's { ok, error } contract — skip the lookup instead.
-    const pushTargetOwnerSettings =
+    const pushTargetOwner =
       linkedPrForPushTarget !== null &&
       normalizedUpdates.pushTarget === undefined &&
       existingWorktree &&
       !existingWorktree.pushTarget
-        ? trySettingsForWorktreeOwner(get(), worktreeId, executionHostId)
+        ? runtimeTargetForWorkspaceOwner(get(), {
+            workspaceId: worktreeId,
+            ...(executionHostId ? { hostId: executionHostId } : {})
+          })
         : null
     const resolvedPushTarget =
-      pushTargetOwnerSettings && existingWorktree && linkedPrForPushTarget !== null
+      pushTargetOwner && existingWorktree && linkedPrForPushTarget !== null
         ? await resolveGitHubReviewPushTarget(
-            pushTargetOwnerSettings,
+            pushTargetOwner,
             existingWorktree.repoId,
             linkedPrForPushTarget
           )
@@ -200,26 +201,9 @@ export function createUpdateWorktreeMeta(
               true
             )
           : null
-      const prCacheKey =
-        reviewRepo && reviewBranch
-          ? getGitHubPRCacheKey(
-              reviewRepo.path,
-              reviewRepo.id,
-              reviewBranch,
-              s.settings,
-              reviewRepo.connectionId,
-              reviewRepo.executionHostId,
-              true
-            )
-          : null
       const prCacheKeys =
-        reviewRepo && reviewBranch
-          ? [
-              prCacheKey,
-              getLegacyGitHubPRCacheKey(reviewRepo.path, reviewRepo.id, reviewBranch),
-              getLegacyGitHubPRCacheKey(reviewRepo.path, undefined, reviewBranch)
-            ].filter((key): key is string => Boolean(key))
-          : []
+        reviewRepo && reviewBranch ? getGitHubPRCacheKeyCandidates(reviewRepo, reviewBranch) : []
+      const prCacheKey = prCacheKeys[0] ?? null
       const hostedReviewCache = s.hostedReviewCache ?? {}
       const prCache = s.prCache ?? {}
       if (
@@ -271,7 +255,7 @@ export function createUpdateWorktreeMeta(
 
     try {
       await persistWorktreeMeta(
-        settingsForWorktreeOwner(get(), worktreeId, executionHostId),
+        runtimeTargetForWorktreeOwner(get(), worktreeId, executionHostId),
         worktreeId,
         getWorkspaceReviewPersistenceUpdates(mutationUpdates, enriched),
         executionHostId ?? existingWorktree?.hostId,

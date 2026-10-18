@@ -15,17 +15,21 @@ import type {
   OrcadManagedRecoveryResult,
   OrcadManagedRollbackResult
 } from '../../shared/orcad-managed-runtime'
-import { runTargetLifecycle } from '../ipc/ssh-target-lifecycle-queue'
+import { runTargetLifecycle } from '../ipc/ssh/ssh-target-lifecycle-queue'
 import type { ServeReadiness } from '../server/serve-readiness'
-import { recoverInterruptedOrcadActivation } from './orcad-activation-recovery'
+import { recoverInterruptedOrcadActivation } from '../managed-server/activation/orcad-activation-recovery'
 import { probeActiveOrcadReadiness } from './orcad-active-readiness'
-import { materializeOrcadArtifact } from './orcad-artifact-materializer'
+import { materializeOrcadArtifact } from '../orcad/orcad-artifact-materializer'
 import { CURRENT_ORCAD_DAEMON_PROTOCOL } from './orcad-daemon-protocol-crossing'
-import { ensureOrcadManagedTunnel } from './orcad-managed-tunnel'
+import {
+  ensureOrcadManagedTunnel,
+  rebuildOrcadManagedTunnel
+} from '../managed-server/lifecycle/orcad-managed-tunnel'
+import { wakeAlreadyActiveOrcad } from './orcad-already-active-wake'
 import {
   clearManagedOrcadUpdateDeferral,
   recordManagedOrcadUpdateDeferral
-} from './orcad-managed-update-deferrals'
+} from '../managed-server/lifecycle/orcad-managed-update-deferrals'
 import {
   isForceableOrcadDeferral,
   managedOrcadInstallDir,
@@ -33,14 +37,15 @@ import {
   probeManagedOrcadReadiness,
   requireManagedOrcadEnvironment,
   resolveLinkedOrcadContext
-} from './orcad-managed-runtime-context'
-import type { OrcadRemoteContext } from './orcad-remote-context'
-import { readRemoteOrcadBuildHash } from './orcad-remote-build-hash'
-import { deployOrcad } from './orcad-remote-deploy'
-import { pruneManagedOrcadVersions } from './orcad-managed-version-gc'
-import { rollbackOrcad } from './orcad-remote-rollback'
+} from '../managed-server/lifecycle/orcad-managed-runtime-context'
+import type { OrcadRemoteContext } from '../managed-server/install/orcad-remote-context'
+import { readRemoteOrcadBuildHash } from '../managed-server/install/orcad-remote-build-hash'
+import { deployOrcad, type OrcadDeployOptions } from './orcad-remote-deploy'
+import { ORCAD_ACTIVATION_POLICY_REFUSED_CODE } from './orcad-installed-activation'
+import { pruneManagedOrcadVersions } from '../managed-server/lifecycle/orcad-managed-version-gc'
+import { rollbackOrcad } from '../managed-server/install/orcad-remote-rollback'
 import { collectManagedTerminalCensus } from './orcad-terminal-census-client'
-import { findIncompleteManagedOrcadMigration } from './orcad-managed-migration-status'
+import { findIncompleteManagedOrcadMigration } from '../managed-server/lifecycle/orcad-managed-migration-status'
 import { latestOrcadMigrationInto } from './orcad-migration-rollback-mark'
 import { tunneledOrcadPairingCode } from './orcad-tunneled-pairing'
 
@@ -92,7 +97,12 @@ export async function runManagedOrcadUpdate(
   userDataPath: string,
   { environment, deployment }: ReturnType<typeof requireManagedOrcadEnvironment>,
   context: OrcadRemoteContext,
-  args: { force?: boolean; signal?: AbortSignal; localOrcadDir?: string }
+  args: {
+    force?: boolean
+    signal?: AbortSignal
+    localOrcadDir?: string
+    admitRecord?: OrcadDeployOptions['admitRecord']
+  }
 ): Promise<OrcadManagedDeployResult> {
   // Why release: finished automation shells would otherwise defer every update on a host with
   // schedules; the update restarts the server anyway.
@@ -112,8 +122,10 @@ export async function runManagedOrcadUpdate(
     localOrcadDir,
     target: context.serverTarget,
     census,
+    censusRecord: context.activationRecord,
     force: args.force,
-    appVersion: getAppEnvironment().getVersion()
+    appVersion: getAppEnvironment().getVersion(),
+    ...(args.admitRecord ? { admitRecord: args.admitRecord } : {})
   })
   if (result.outcome === 'installed-not-activated') {
     const deferral = {
@@ -123,10 +135,14 @@ export async function runManagedOrcadUpdate(
       reason: result.reason,
       forceable: isForceableOrcadDeferral(result.code)
     }
-    recordManagedOrcadUpdateDeferral(environment.id, deferral)
+    // A policy refusal is a decision about this host, not an update waiting to be retried.
+    if (result.code !== ORCAD_ACTIVATION_POLICY_REFUSED_CODE) {
+      recordManagedOrcadUpdateDeferral(environment.id, deferral)
+    }
     return deferral
   }
   clearManagedOrcadUpdateDeferral(environment.id)
+  const started = result.outcome === 'already-active' && (await wakeAlreadyActiveOrcad(slot))
   const readiness = await probeManagedOrcadReadiness(
     context,
     localOrcadDir,
@@ -140,6 +156,10 @@ export async function runManagedOrcadUpdate(
     readiness
   })
   const updated = refreshPairing(userDataPath, environment, readiness, deployment.localPort)
+  if (started) {
+    // The started slot may have bound another port than the forward in use.
+    await rebuildOrcadManagedTunnel(userDataPath, environment.id)
+  }
   return {
     outcome: result.outcome === 'already-active' ? 'already-current' : 'updated',
     environment: redactRuntimeEnvironment(updated),

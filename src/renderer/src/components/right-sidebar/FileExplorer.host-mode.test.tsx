@@ -30,7 +30,8 @@ const state = {
   rightSidebarOpen: true,
   showDotfilesByWorktree: {},
   toggleShowDotfilesForWorktree: () => {},
-  explorerDisplayRootByWorktree: {}
+  explorerDisplayRootByWorktree: {},
+  runtimeEnvironments: []
 }
 
 vi.mock('@/store', () => ({

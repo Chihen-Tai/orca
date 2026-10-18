@@ -175,7 +175,7 @@ describe('capability gating', () => {
     }
     // Bump deliberately: the whole agentSession.* surface is behind the structured capability,
     // so an additive method is invisible to old clients and needs no protocol bump.
-    expect(STRUCTURED_AGENT_SESSION_METHODS).toHaveLength(34)
+    expect(STRUCTURED_AGENT_SESSION_METHODS).toHaveLength(37)
   })
 
   it('hides the surface from a declared client that did not advertise it', async () => {
@@ -312,7 +312,7 @@ describe('capability gating', () => {
 
   it('serves a capable mobile client whatever the host structured-chat setting says', async () => {
     const response = await call('agentSession.send', sendParams(), STRUCTURED_MOBILE_CLIENT, {
-      getClientSettings: () => ({ experimentalStructuredNativeChat: false })
+      getClientSettings: () => ({ experimentalNativeChat: false })
     })
     expect(response).toMatchObject({ ok: true })
     expect(hostCalls.send).toHaveBeenCalledTimes(1)
@@ -383,10 +383,12 @@ describe('method routing', () => {
     }
     const created = await call('agentSession.create', params, STRUCTURED_CLIENT)
     expect(created).toMatchObject({ ok: true, result: { ok: true } })
-    expect(runtimeCalls.resolveStructuredAgentSessionCreateIntent).toHaveBeenCalledWith({
-      ...params,
-      callerKey: 'trusted-local:runtime'
-    })
+    expect(runtimeCalls.resolveStructuredAgentSessionCreateIntent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ...params,
+        callerKey: 'trusted-local:runtime'
+      })
+    )
     expect(hostCalls.attach).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
@@ -536,10 +538,12 @@ describe('method routing', () => {
         ok: true,
         result: { ok: true }
       })
-      expect(runtimeCalls.resolveStructuredAgentSessionCreateIntent).toHaveBeenCalledWith({
-        ...params,
-        callerKey: 'trusted-local:runtime'
-      })
+      expect(runtimeCalls.resolveStructuredAgentSessionCreateIntent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ...params,
+          callerKey: 'trusted-local:runtime'
+        })
+      )
     }
   )
 
@@ -570,10 +574,12 @@ describe('method routing', () => {
     }
     const created = await call('agentSession.create', params, STRUCTURED_CLIENT)
     expect(created).toMatchObject({ ok: true, result: { ok: true } })
-    expect(runtimeCalls.resolveStructuredAgentSessionCreateIntent).toHaveBeenCalledWith({
-      ...params,
-      callerKey: 'trusted-local:runtime'
-    })
+    expect(runtimeCalls.resolveStructuredAgentSessionCreateIntent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ...params,
+        callerKey: 'trusted-local:runtime'
+      })
+    )
     expect(hostCalls.attach).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({

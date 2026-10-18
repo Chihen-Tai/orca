@@ -19,6 +19,11 @@ import { PiRpcTurns } from './rpc-turns'
 import { PiRpcDialogCallbacks } from './rpc-dialog-callbacks'
 import { piRpcStateSchema } from './rpc-protocol'
 import { applyPiRpcSessionOption, readPiRpcCommands, readPiRpcSessionOptions } from './rpc-options'
+import {
+  unpickedSessionConfiguredChoice,
+  withLiveCatalogListing,
+  type AgentModelCatalogLiveListing
+} from '../native-chat/agent-model-catalog/agent-model-catalog-entry'
 
 export type PiRpcConnection = Pick<
   JsonlRpcAgentConnection,
@@ -46,7 +51,6 @@ export type PiRpcSessionDeps = {
     fence: number
     outcome: AgentSessionDispatchOutcome
   }) => void
-  onIdle: (input: { sessionId: string }) => void
   logger: StructuredAgentSessionLogger
 }
 
@@ -57,6 +61,9 @@ export class PiRpcSession {
   readonly turns: PiRpcTurns
   readonly dialogs: PiRpcDialogCallbacks
   readonly selected = new Map<string, string>()
+  /** The sends this child holds: each from its handover until its settlement. */
+  readonly heldSends = new Set<string>()
+  private startCatalogListing?: AgentModelCatalogLiveListing
   readonly skipped: string[] = []
   commands?: AgentSessionSlashCommand[]
   options?: AgentSessionOptionsResult
@@ -70,7 +77,9 @@ export class PiRpcSession {
     readonly input: StructuredAgentSessionAcquireInput,
     readonly generation: string,
     launch: ProviderProcessLaunch,
-    private readonly deps: PiRpcSessionDeps
+    private readonly deps: PiRpcSessionDeps,
+    /** A new Pi session starts on its config's model; a resumed or forked one keeps its own. */
+    readonly resolvesConfig = false
   ) {
     const sink = input.events && providerTimelineSink(input.events)
     if (!sink) {
@@ -97,10 +106,7 @@ export class PiRpcSession {
       send: (frame) => this.connection.send(frame),
       request: (command, params, options) => this.connection.request(command, params, options),
       settled: (id, outcome) => this.settle(id, outcome),
-      idle: () => {
-        this.dialogs.cancelAll()
-        deps.onIdle({ sessionId: input.identity.sessionId })
-      },
+      idle: () => this.dialogs.cancelAll(),
       failed: (error) => this.fail(error),
       diagnostic: (error) =>
         deps.logger.warn('Pi context usage could not be read', {
@@ -117,6 +123,7 @@ export class PiRpcSession {
     this.connection = (
       deps.openConnection ?? ((spec, handlers) => new JsonlRpcAgentConnection(spec, handlers))
     )(launch, {
+      ...(input.onOutput ? { onOutput: input.onOutput } : {}),
       onRecord: (frame) =>
         frame.type === 'extension_ui_request'
           ? this.dialogs.receive(frame)
@@ -138,14 +145,32 @@ export class PiRpcSession {
     })
   }
 
+  async submit(...args: Parameters<PiRpcTurns['submit']>): ReturnType<PiRpcTurns['submit']> {
+    const [clientMessageId] = args
+    this.heldSends.add(clientMessageId)
+    let outcome: AgentSessionDispatchOutcome | undefined
+    try {
+      outcome = await this.turns.submit(...args)
+      return outcome
+    } finally {
+      // Admitted, it stays held until its settlement; anything else was answered here.
+      if (outcome?.state !== 'admitted') {
+        this.heldSends.delete(clientMessageId)
+      }
+    }
+  }
+
   async start(): Promise<string> {
     const state = piRpcStateSchema.parse(await this.connection.request('get_state'))
     this.lane.apply(this.turns.context.setModel(state.model ?? undefined, Date.now()))
+    // Keys a restore sent, whether or not Pi took them.
+    const picked = new Set<string>()
     for (const [key, value] of Object.entries(this.input.options ?? {})) {
       if (!['model', 'effort'].includes(key)) {
         this.skipped.push(key)
         continue
       }
+      picked.add(key)
       try {
         await applyPiRpcSessionOption(this.connection, this.selected, key, value)
       } catch (error) {
@@ -159,6 +184,14 @@ export class PiRpcSession {
       }
     }
     this.options = await readPiRpcSessionOptions(this.connection)
+    this.startCatalogListing = withLiveCatalogListing(
+      this.options,
+      unpickedSessionConfiguredChoice({
+        resolvesConfig: this.resolvesConfig,
+        picked,
+        ...this.options
+      })
+    ).catalogListing
     try {
       this.commands = (await readPiRpcCommands(this.connection)).commands
     } catch (error) {
@@ -169,6 +202,16 @@ export class PiRpcSession {
       })
     }
     return state.sessionFile
+  }
+
+  /** What this child listed at its start, with what its config resolved; the host saves it once. */
+  get startListing(): AgentModelCatalogLiveListing | undefined {
+    return this.startCatalogListing
+  }
+
+  /** What the child reports now; only the start says what its config resolved. */
+  async readOptions() {
+    return withLiveCatalogListing(await readPiRpcSessionOptions(this.connection))
   }
 
   async close(requested = true): ReturnType<PiRpcConnection['close']> {
@@ -226,11 +269,13 @@ export class PiRpcSession {
       return
     }
     this.publishedExit = true
+    const observedAt = Date.now()
+    this.input.events?.observeExit?.(this.heldSends, observedAt)
     this.dialogs.cancelAll()
     this.turns.end()
     this.lane.finalize()
     this.lane.apply([
-      { type: 'session.ended', verdict: { state: 'interrupted', completedAt: Date.now() } }
+      { type: 'session.ended', verdict: { state: 'interrupted', completedAt: observedAt } }
     ])
     this.lane.flush()
     let timer: ReturnType<typeof setTimeout> | undefined
@@ -256,13 +301,14 @@ export class PiRpcSession {
       sessionId: this.input.identity.sessionId,
       fence: this.input.fence,
       acquisitionGeneration: this.generation,
-      observedAt: Date.now(),
+      observedAt,
       cause: this.requestedClose ? 'requested-close' : 'unexpected-exit',
       reason: (this.failedCause ?? error).message
     })
   }
 
   private settle(clientMessageId: string, outcome: AgentSessionDispatchOutcome): void {
+    this.heldSends.delete(clientMessageId)
     this.deps.onSettled({
       sessionId: this.input.identity.sessionId,
       clientMessageId,

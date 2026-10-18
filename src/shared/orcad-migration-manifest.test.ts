@@ -2,12 +2,16 @@ import { describe, expect, it } from 'vitest'
 import { getDefaultWorkspaceSession } from './constants'
 import {
   MAX_ORCAD_MIGRATION_DORMANT_NAMESPACES,
-  MAX_ORCAD_MIGRATION_DORMANT_ROWS,
+  MAX_ORCAD_MIGRATION_DORMANT_ROWS
+} from './orcad-migration-dormant-state-validation'
+import {
   MAX_ORCAD_MIGRATION_IMPORT_RECEIPTS,
   MAX_ORCAD_MIGRATION_MANIFEST_BYTES,
   normalizeOrcadMigrationImportReceipts,
   ORCAD_MIGRATION_MANIFEST_VERSION,
-  parseOrcadMigrationManifest,
+  parseOrcadMigrationManifest
+} from './orcad-migration-manifest-validation'
+import {
   serializeOrcadMigrationValue,
   type OrcadMigrationImportReceipt
 } from './orcad-migration-manifest'
@@ -49,9 +53,9 @@ describe('orcad migration manifest', () => {
 
     expect(normalized).toHaveLength(MAX_ORCAD_MIGRATION_IMPORT_RECEIPTS)
     expect(normalized.some((entry) => entry.migrationId === 'migration-0')).toBe(false)
-    expect(
-      normalized.find((entry) => entry.migrationId === 'migration-10')?.source.targetLabel
-    ).toBe('Newest')
+    expect(normalized.find((entry) => entry.migrationId === 'migration-10')?.source).toMatchObject({
+      targetLabel: 'Newest'
+    })
   })
 
   it('normalizes receipts without Node 20-only array methods', () => {
@@ -374,5 +378,22 @@ describe('orcad migration manifest', () => {
         }
       })
     ).toThrow('orcad_migration_dormant_automation_run_status_invalid')
+    for (const invalid of [
+      { extraAgentArgs: '--dangerously-bypass-approvals-and-sandbox' },
+      { extraAgentArgs: '--model gpt-5', reuseSession: true }
+    ]) {
+      expect(() =>
+        parseOrcadMigrationManifest({
+          ...candidate,
+          payload: {
+            ...candidate.payload,
+            dormantState: {
+              ...candidate.payload.dormantState,
+              automations: [{ ...automation, ...invalid }]
+            }
+          }
+        })
+      ).toThrow('orcad_migration_dormant_automation_extra_agent_args_invalid')
+    }
   })
 })

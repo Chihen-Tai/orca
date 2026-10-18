@@ -1,5 +1,8 @@
 import React, { useCallback, useMemo } from 'react'
 import { useAppStore } from '@/store'
+import { getRuntimeEnvironmentIdForWorktree } from '@/lib/worktree-runtime-owner'
+import { getWorkspaceFileRevealOwner } from '@/lib/reveal-in-file-manager'
+import { getRouteForLocalPathOpenOwner } from '@/lib/local-path-open-guard'
 import { useActiveWorktree, useRepoById } from '@/store/selectors'
 import {
   getExplorerDisplayRootOptions,
@@ -21,7 +24,7 @@ import { FileExplorerNameFilter } from './FileExplorerNameFilter'
 import { FileExplorerQueryStrip } from './FileExplorerQueryStrip'
 import { SearchFilters } from './SearchFilters'
 import { SearchQueryRow } from './SearchQueryRow'
-import { SearchResultsPane } from './SearchResultsPane'
+import { FileExplorerSearchResultsLayer } from './FileExplorerSearchResultsLayer'
 import { useFileSearchPanel } from './useFileSearchPanel'
 import {
   getNameFilterCollapsedPathsAfterExpand,
@@ -29,6 +32,7 @@ import {
 } from './file-explorer-name-filter-projection'
 import { useFileExplorerManualRefresh } from './useFileExplorerManualRefresh'
 import { useFileExplorerTree } from './useFileExplorerTree'
+import { getFileExplorerOperationOwnerFromState } from './file-explorer-operation-owner'
 import { useFileExplorerSelection } from './useFileExplorerSelection'
 import { useFileExplorerVisibleRowProjection } from './useFileExplorerVisibleRowProjection'
 import { useFileExplorerBackgroundMenu } from './use-file-explorer-background-menu'
@@ -42,6 +46,7 @@ import {
   FileExplorerProjectOnly
 } from './file-explorer-host-mode-context'
 import { FileExplorerHostQueryRow } from './FileExplorerHostQueryRow'
+import { useWslHostUnavailableReason } from '../terminal-pane/use-wsl-host-unavailable-reason'
 import { translate } from '@/i18n/i18n'
 import type { RightSidebarExplorerView } from '../../../../shared/ui-chrome-types'
 
@@ -52,8 +57,19 @@ function FileExplorerFiles(): React.JSX.Element {
   const showRightSidebarSearch = useAppStore((s) => s.showRightSidebarSearch)
   const searchPanel = useFileSearchPanel(explorerView)
   const activeWorktreeId = useAppStore((s) => s.activeWorktreeId)
+  const runtimeEnvironmentId = useAppStore((s) =>
+    getRuntimeEnvironmentIdForWorktree(s, activeWorktreeId)
+  )
+  const wslHostUnavailable = useWslHostUnavailableReason(activeWorktreeId)
   const activeWorktree = useActiveWorktree()
   const activeRepo = useRepoById(activeWorktree?.repoId ?? null)
+  // Why: a folder workspace has no repo row, so only the catalog owner names its SSH host.
+  const openInOwner = useAppStore((s) =>
+    getWorkspaceFileRevealOwner(s, activeWorktreeId, {
+      connectionId: activeRepo?.connectionId,
+      runtimeEnvironmentId
+    })
+  )
   const expandedDirs = useAppStore((s) => s.expandedDirs)
   const collapseAllDirs = useAppStore((s) => s.collapseAllDirs)
   const activeFileId = useAppStore((s) => s.activeFileId)
@@ -255,7 +271,7 @@ function FileExplorerFiles(): React.JSX.Element {
         <FileExplorerHostAwareToolbar
           repoName={repoName}
           worktreePath={worktreePath}
-          connectionId={activeRepo?.connectionId ?? null}
+          {...getRouteForLocalPathOpenOwner(openInOwner)}
           refresh={manualRefresh}
           canRefresh={isFilesViewActive}
           canCollapseAll={canCollapseAll}
@@ -360,24 +376,9 @@ function FileExplorerFiles(): React.JSX.Element {
                 handleExplorerBackgroundContextMenuCapture
               }
               handleExplorerBackgroundDoubleClick={handleExplorerBackgroundDoubleClick}
+              wslHostUnavailable={wslHostUnavailable}
             />
-            <div
-              className={cn(
-                'absolute inset-0 flex min-h-0 flex-col',
-                explorerView !== 'search' && 'pointer-events-none invisible'
-              )}
-            >
-              {searchPanel.activeWorktreeId ? (
-                <SearchResultsPane {...searchPanel.resultsProps} />
-              ) : (
-                <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
-                  {translate(
-                    'auto.components.right.sidebar.Search.98c8435e36',
-                    'Select a workspace to search'
-                  )}
-                </div>
-              )}
-            </div>
+            <FileExplorerSearchResultsLayer explorerView={explorerView} searchPanel={searchPanel} />
           </FileExplorerHostInertBoundary>
         </div>
       </div>
@@ -397,7 +398,11 @@ function FileExplorerFiles(): React.JSX.Element {
 const FileExplorerFilesMemo = React.memo(FileExplorerFiles)
 
 function FileExplorer(): React.JSX.Element {
-  return <FileExplorerFilesMemo />
+  const ownerKey = useAppStore((state) =>
+    JSON.stringify(getFileExplorerOperationOwnerFromState(state, state.activeWorktreeId))
+  )
+  // Different hosts can expose the same path; their explorer caches must have separate lifetimes.
+  return <FileExplorerFilesMemo key={ownerKey} />
 }
 
 export default React.memo(FileExplorer)

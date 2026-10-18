@@ -7,7 +7,7 @@ import type {
   HostDirectoryListing
 } from '../../../shared/filesystem-entry-types'
 import { browseServerDirectory } from '../../runtime/runtime-server-environment-commands'
-import { requireSshFilesystemProvider } from '../../providers/ssh-filesystem-dispatch'
+import { getSshFilesystemProvider } from '../../providers/ssh-filesystem-dispatch'
 
 async function canonicalRelativePath(
   realPath: string,
@@ -34,7 +34,10 @@ export async function resolveHostBrowseEntry(
   }
   if (connectionId) {
     // Why: the relay has no FS allowlist (relay/context.ts), so SSH only classifies.
-    const provider = requireSshFilesystemProvider(connectionId)
+    const provider = getSshFilesystemProvider(connectionId)
+    if (!provider) {
+      throw new Error('Remote connection dropped. Click Reconnect on the SSH target before retrying.')
+    }
     const realPath = await provider.realpath(targetPath)
     const target = await provider.stat(realPath)
     return {

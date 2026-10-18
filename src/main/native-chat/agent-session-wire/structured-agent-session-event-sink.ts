@@ -7,7 +7,7 @@ import type {
 } from '../../../shared/agent-session-journal-types'
 import type { AgentSessionTurnActivity } from '../../../shared/agent-session-wire'
 import type { AgentSessionJournal } from '../agent-session-journal/journal-store'
-import type { JournalLifecycleMutationInput } from '../agent-session-journal/journal-row-builders'
+import type { JournalLifecycleIdentityMutationInput } from '../agent-session-journal/journal-row-builders'
 import { estimateStructuredAgentSessionItemBytes } from './structured-agent-session-event-sink-estimate'
 import { StructuredAgentSessionSinkQueue } from './structured-agent-session-event-sink-queue'
 import { structuredAgentSessionJournalAppendOptions } from './structured-agent-session-journal-append-options'
@@ -17,6 +17,7 @@ import {
   type StructuredAgentSessionTransitionSink
 } from './structured-agent-session-transition'
 import type { StructuredAgentSessionLogger } from './structured-agent-session-logger'
+import { StructuredAgentSessionExitObservation } from './structured-agent-session-exit-observation'
 
 export type StructuredAgentSessionSinkAdmission =
   | { accepted: true }
@@ -51,6 +52,9 @@ export type StructuredAgentSessionPublishOptions = Pick<
 /** An item write states which turn its row belongs to; the write that creates the row decides. */
 export type StructuredAgentSessionItemAppendOptions = StructuredAgentSessionAppendOptions & {
   turnScope: AgentJournalTurnScope
+  /** A reusable child's row a later run can resume: this child now executes it
+   *  (`JournalItemRow.executionOwner`). */
+  executes?: true
 }
 
 export type StructuredAgentSessionLifecycleJournal = Pick<
@@ -71,7 +75,7 @@ export type StructuredAgentSessionRevisionJournal = Pick<
 /** Rows already journaled and who produced each, read by a producer that has to agree with them. */
 export type StructuredAgentSessionLinkageJournal = Pick<
   AgentSessionJournal,
-  'epoch' | 'visitItemsWithLinkage'
+  'epoch' | 'visitItemsWithLinkage' | 'threadGoal' | 'threadGoalSource'
 >
 
 /** The row a revision rewrites and its whole new body, read from the journal at execution. */
@@ -81,10 +85,8 @@ export type StructuredAgentSessionRevisionResolver = (
 
 export type StructuredAgentSessionRevisionOptions = StructuredAgentSessionItemAppendOptions
 
-/** Compatibility alias for lifecycle callers that already use this resolver. */
-export type StructuredAgentSessionLifecycleIdentityResolver = StructuredAgentSessionIdentityResolver
-
 export type StructuredAgentSessionEventSink = StructuredAgentSessionTransitionSink & {
+  observeExit?: StructuredAgentSessionExitObservation['record']
   appendItem(
     identity: AgentJournalItemIdentity,
     body: AgentJournalItemBody,
@@ -150,12 +152,12 @@ export type StructuredAgentSessionEventSink = StructuredAgentSessionTransitionSi
   journalStopDecidesTurn?(turnId: string, endedAt: number): boolean
   appendLifecycleBatch?(
     settlementId: string,
-    mutations: readonly JournalLifecycleMutationInput[],
+    mutations: readonly JournalLifecycleIdentityMutationInput[],
     options?: StructuredAgentSessionAppendOptions
   ): StructuredAgentSessionSinkAdmission | void
   tryAppendLifecycleBatch?(
     settlementId: string,
-    mutations: readonly JournalLifecycleMutationInput[],
+    mutations: readonly JournalLifecycleIdentityMutationInput[],
     options?: StructuredAgentSessionAppendOptions
   ): StructuredAgentSessionSinkAdmission
   tryPublish?(options?: StructuredAgentSessionPublishOptions): StructuredAgentSessionSinkAdmission
@@ -171,6 +173,7 @@ export type StructuredAgentSessionEventTarget = {
 
 export type DeferredStructuredAgentSessionEventSink = {
   sink: StructuredAgentSessionEventSink
+  exitObservation(): Pick<StructuredAgentSessionExitObservation, 'heldSends' | 'observedAt'>
   bind(target: StructuredAgentSessionEventTarget): void
   unbind(): void
   close(): void
@@ -216,6 +219,7 @@ export function createDeferredStructuredAgentSessionEventSink(deps: {
   readingControl?: StructuredAgentSessionReadingControl
   onBackpressureChange?: (backpressured: boolean, state: StructuredAgentSessionSinkState) => void
 }): DeferredStructuredAgentSessionEventSink {
+  const exit = new StructuredAgentSessionExitObservation()
   const watermarks = { ...DEFAULT_WATERMARKS, ...deps.watermarks }
   const failed = (error: unknown): void => {
     deps.logger.error('writing provider events to the chat journal failed', {
@@ -235,7 +239,7 @@ export function createDeferredStructuredAgentSessionEventSink(deps: {
 
   const appendLifecycleBatch = (
     settlementId: string,
-    mutations: readonly JournalLifecycleMutationInput[],
+    mutations: readonly JournalLifecycleIdentityMutationInput[],
     options: StructuredAgentSessionAppendOptions = {}
   ): StructuredAgentSessionSinkAdmission =>
     queue.submit(
@@ -246,7 +250,9 @@ export function createDeferredStructuredAgentSessionEventSink(deps: {
             settlementId,
             mutations,
             // No row-level linkage: each mutation names its own (see the batch row builder).
-            fence: bound.fence
+            fence: bound.fence,
+            // The provider's own observation: its child's generation produced every item it creates.
+            ownerFence: bound.fence
           })
       },
       { ...options, lifecycle: true }
@@ -283,10 +289,10 @@ export function createDeferredStructuredAgentSessionEventSink(deps: {
     )
 
   return {
+    exitObservation: () => exit,
     sink: {
-      appendItem: (identity, body, options) => {
-        appendItem(identity, body, options)
-      },
+      observeExit: exit.record,
+      appendItem: (identity, body, options) => void appendItem(identity, body, options),
       tryAppendItem: appendItem,
       ...resolvedAppend,
       ...createStructuredAgentSessionTransitionMembers(queue),
@@ -305,9 +311,7 @@ export function createDeferredStructuredAgentSessionEventSink(deps: {
         return admission
       },
       tryAppendLifecycleBatch: appendLifecycleBatch,
-      bindReadingControl: (control) => {
-        return queue.bindReadingControl(control)
-      },
+      bindReadingControl: (control) => queue.bindReadingControl(control),
       appendTombstone: (identity, options = {}) => {
         queue.submit(
           {
@@ -325,9 +329,7 @@ export function createDeferredStructuredAgentSessionEventSink(deps: {
           },
           options
         ),
-      publish: (options = {}) => {
-        publish(options)
-      },
+      publish: (options = {}) => void publish(options),
       written: queue.written,
       setActivity: (activity) => {
         queue.submit({

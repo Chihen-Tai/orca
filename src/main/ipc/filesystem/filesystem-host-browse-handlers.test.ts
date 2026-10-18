@@ -10,8 +10,8 @@ import {
   resolveHostBrowseEntry
 } from './filesystem-host-browse-handlers'
 
-const { requireSshFilesystemProviderMock, handlers } = vi.hoisted(() => ({
-  requireSshFilesystemProviderMock: vi.fn(),
+const { getSshFilesystemProviderMock, handlers } = vi.hoisted(() => ({
+  getSshFilesystemProviderMock: vi.fn(),
   handlers: new Map<string, (event: unknown, args: unknown) => unknown>()
 }))
 
@@ -23,7 +23,7 @@ vi.mock('electron', () => ({
 }))
 
 vi.mock('../../providers/ssh-filesystem-dispatch', () => ({
-  requireSshFilesystemProvider: requireSshFilesystemProviderMock
+  getSshFilesystemProvider: getSshFilesystemProviderMock
 }))
 
 // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: allowed-root lookups read only these four accessors.
@@ -36,7 +36,7 @@ const store = {
 
 function sshProvider(stat = vi.fn(), realpath = (path: string): string => path) {
   const provider = { realpath: vi.fn(async (path: string) => realpath(path)), stat }
-  requireSshFilesystemProviderMock.mockReturnValue(provider)
+  getSshFilesystemProviderMock.mockReturnValue(provider)
   return provider
 }
 
@@ -47,7 +47,7 @@ describe('host browse handlers', () => {
     root = await realpath(await mkdtemp(join(tmpdir(), 'orca-host-browse-')))
     await mkdir(join(root, 'outside', 'nested'), { recursive: true })
     await writeFile(join(root, 'outside', 'notes.txt'), 'hi')
-    requireSshFilesystemProviderMock.mockReset()
+    getSshFilesystemProviderMock.mockReset()
   })
 
   afterEach(async () => {
@@ -132,7 +132,7 @@ describe('host browse handlers', () => {
       realPath: '/home/allen/codes/repo/src',
       workspaceRelativePath: 'src'
     })
-    expect(requireSshFilesystemProviderMock).toHaveBeenCalledWith('ssh-1')
+    expect(getSshFilesystemProviderMock).toHaveBeenCalledWith('ssh-1')
     expect(provider.stat).toHaveBeenCalledWith('/home/allen/codes/repo/src')
     expect(provider.realpath).toHaveBeenCalledWith('/home/allen/codes/repo')
     expect(isPathAllowed('/home/allen/link', store)).toBe(false)

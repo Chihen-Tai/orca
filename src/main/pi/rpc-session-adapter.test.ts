@@ -16,6 +16,7 @@ import { JsonlRpcResponseError } from '../jsonl-rpc/peer'
 import type { PiRpcConnection } from './rpc-session'
 import type { ProviderProcessLaunch } from '../provider-process/provider-process-launch'
 import type { StructuredAgentSessionEventSink } from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
+import { agentSessionLaunchFolderMissing } from '../runtime/agent-session-launch-directory'
 import { PiRpcSessionAdapter } from './rpc-session-adapter'
 
 const sessionId = 'session-timeline'
@@ -113,8 +114,7 @@ async function setup(
   const rig = await openProviderTimelineRig({ agent: 'pi', sessionId })
   const connections: FakeConnection[] = []
   const lifecycle = vi.fn(),
-    settled = vi.fn(),
-    idle = vi.fn()
+    settled = vi.fn()
   const onSpawned = vi.fn(async (_process: AgentSessionProcessIdentity) => {
     expect(connections.at(-1)?.requests).toEqual([])
   })
@@ -151,7 +151,6 @@ async function setup(
     openConnection,
     onLifecycle: lifecycle,
     onSettled: settled,
-    onIdle: idle,
     logger: { warn: vi.fn(), error: vi.fn() }
   })
   const acquired = await adapter.acquire(input)
@@ -172,7 +171,6 @@ async function setup(
     onSpawned,
     lifecycle,
     settled,
-    idle,
     input,
     resolveLaunch,
     openConnection,
@@ -181,6 +179,17 @@ async function setup(
 }
 
 describe('Pi RPC session ownership and delivery', () => {
+  it('refuses a floating chat whose folder is gone with the reason the person reads', async () => {
+    const h = await setup()
+    await h.adapter.closeSession(sessionId)
+    h.resolveLaunch.mockRejectedValueOnce(agentSessionLaunchFolderMissing('/gone/floating'))
+    await expect(h.adapter.acquire({ ...h.input, fence: 8 })).rejects.toMatchObject({
+      name: 'AgentSessionPreSpawnError',
+      reason: 'launchFolderMissing'
+    })
+    expect(h.connections).toHaveLength(1)
+  })
+
   it('does not spawn a start cancelled while resolving its workspace', async () => {
     const h = await setup()
     await h.adapter.closeSession(sessionId)
@@ -328,6 +337,27 @@ describe('Pi RPC session ownership and delivery', () => {
       }
     })
     expect(h.connection.sent[0]).toMatchObject({ type: 'prompt', message: 'hello' })
+  })
+
+  it('holds each send from its handover until it settles, and none whose write failed', async () => {
+    const h = await setup()
+    const send = (clientMessageId: string) =>
+      h.adapter.dispatch({
+        sessionId,
+        fence: 7,
+        clientMessageId,
+        body: { kind: 'message', role: 'user', blocks: [{ type: 'text', text: clientMessageId }] }
+      })
+    vi.spyOn(h.connection, 'send').mockRejectedValueOnce(new Error('stdin closed'))
+    await expect(send('lost')).resolves.toMatchObject({ state: 'unknown' })
+    expect(h.adapter.heldSends(sessionId)).toEqual(new Set())
+
+    await send('first')
+    expect(h.adapter.heldSends(sessionId)).toEqual(new Set(['first']))
+    h.connection.receive({ type: 'agent_start' })
+    await send('steer')
+    // The first is accepted; the steer waits behind its running turn.
+    expect(h.adapter.heldSends(sessionId)).toEqual(new Set(['steer']))
   })
 
   it('rejects stale fences and a Stop for a different turn before sending abort', async () => {
@@ -558,5 +588,31 @@ describe('Pi RPC session ownership and delivery', () => {
     const other = await setup()
     other.connection.closeResult = { root: 'unverifiable', tree: null }
     expect(await other.adapter.closeSession(sessionId)).toBe(false)
+  })
+})
+
+describe('Pi RPC start without a model', () => {
+  it('reports a start that listed no model as signed out, for that child only', async () => {
+    const h = await setup()
+    expect(h.adapter.startUnavailable(sessionId)).toBeUndefined()
+    await h.adapter.closeSession(sessionId)
+    h.openConnection.mockImplementationOnce((_launch, handlers) => {
+      const connection = new FakeConnection(handlers)
+      // What a signed-out Pi lists (captured from Pi 1.0.4 in __fixtures__/signed-out.jsonl).
+      connection.requestOverride = (command) =>
+        command === 'get_available_models' ? Promise.resolve({ models: [] }) : undefined
+      h.connections.push(connection)
+      return connection
+    })
+    await h.adapter.acquire({ ...h.input, fence: 8 })
+    expect(h.adapter.startUnavailable(sessionId)).toEqual({ reason: 'notSignedIn' })
+    // Its root gone while its output still drains: that child says nothing more.
+    const child = h.connections.at(-1)!
+    child.rootVerdict = 'exited'
+    expect(child.closed).toBe(false)
+    expect(h.adapter.startUnavailable(sessionId)).toBeUndefined()
+    child.rootVerdict = 'live'
+    await h.adapter.closeSession(sessionId)
+    expect(h.adapter.startUnavailable(sessionId)).toBeUndefined()
   })
 })
