@@ -11,6 +11,7 @@ import type {
 import { isAcpStructuredOptionKey } from './acp-structured-agent-definitions'
 import { AcpRpcError } from './acp-errors'
 import type { AcpStructuredConnection } from './acp-structured-connection'
+import type { AcpLaunchSpec } from './acp-launch-specs'
 import type { AcpDialect } from './acp-dialects/acp-dialect'
 import {
   unpickedSessionConfiguredChoice,
@@ -55,7 +56,9 @@ function isSelect(option: SessionConfigOption): option is SelectOption {
 }
 
 export class AcpStructuredOptions {
-  constructor(private readonly dialect: Pick<AcpDialect, 'modelEfforts'> = {}) {}
+  constructor(
+    private readonly dialect: Pick<AcpDialect, 'modelEfforts' | 'withheldCommands'> = {}
+  ) {}
 
   private configOptions: SessionConfigOption[] = []
   private models: SessionModelState | null = null
@@ -95,12 +98,15 @@ export class AcpStructuredOptions {
   }
 
   adoptCommands(commands: readonly AvailableCommand[]): void {
-    this.commands = commands.map((command) => ({
-      name: command.name,
-      kind: 'command',
-      ...(command.description ? { description: command.description } : {}),
-      ...(command.input?.hint ? { argumentHint: command.input.hint } : {})
-    }))
+    const withheld = this.dialect.withheldCommands ?? []
+    this.commands = commands
+      .filter((command) => !withheld.includes(command.name))
+      .map((command) => ({
+        name: command.name,
+        kind: 'command',
+        ...(command.description ? { description: command.description } : {}),
+        ...(command.input?.hint ? { argumentHint: command.input.hint } : {})
+      }))
   }
 
   readCommands(): AgentSessionSlashCommand[] | undefined {
@@ -199,12 +205,37 @@ export class AcpStructuredOptions {
     }
   }
 
+  /** The session's mode is its `mode`-category select, whatever the agent names it. */
+  modeConfigId(): string {
+    return this.select('mode')?.id ?? 'mode'
+  }
+
   private select(category: string): SelectOption | null {
     const option = this.configOptions.find(
       (entry) => entry.category === category || (category === 'model' && entry.id === 'model')
     )
     return option && isSelect(option) ? option : null
   }
+}
+
+/** Images go only where the agent's row offers them and its start advertised them. */
+export async function acpSessionAcceptsImages(session: {
+  spec: Pick<AcpLaunchSpec, 'imagePrompts'>
+  connection: Pick<AcpStructuredConnection, 'initialize'>
+}): Promise<boolean> {
+  return (
+    session.spec.imagePrompts === true &&
+    (await session.connection.initialize()).agentCapabilities?.promptCapabilities?.image === true
+  )
+}
+
+/** A running child's options, and whether a message to it may carry images. */
+export async function readAcpLiveOptions(
+  session: Parameters<typeof acpSessionAcceptsImages>[0] & { options: AcpStructuredOptions }
+) {
+  const acceptsImages = await acpSessionAcceptsImages(session)
+  // Only the start says what the config resolved: the session may have moved since.
+  return { ...withLiveCatalogListing(session.options.read()), acceptsImages }
 }
 
 /** Sends a pick and adopts the agent's answer, even one that lands after the wait gave up: that is

@@ -51,7 +51,7 @@ vi.mock('@/i18n/i18n', () => ({
     fallback.replace(/\{\{(\w+)\}\}/g, (_match, name: string) => String(values?.[name] ?? ''))
 }))
 vi.mock('@/lib/browser-uuid', () => ({ createBrowserUuid: () => 'session-1' }))
-vi.mock('@/runtime/runtime-file-client', () => ({
+vi.mock('@/runtime/runtime-file-import-client', () => ({
   importExternalPathsToRuntime: (
     _context: unknown,
     _paths: string[],

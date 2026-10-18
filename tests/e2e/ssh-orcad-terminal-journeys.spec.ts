@@ -7,11 +7,11 @@
  *    closed while the host is disconnected stays closed.
  * 3. Faults: a pane outlives a dropped SSH link and a frozen host, and answers input after both.
  */
-import type { ElectronApplication, Page } from '@stablyai/playwright-test'
+import type { Page } from '@stablyai/playwright-test'
 import { expect, test } from './helpers/orca-app'
 import { reconnect } from './helpers/orcad-convert-flow'
 import { readPairedPaneContent } from './helpers/paired-host-terminal'
-import { waitForSessionReady, waitForStartupWorktreeRefresh } from './helpers/store'
+import { waitForSessionReady } from './helpers/store'
 import {
   activateManagedWorkspace,
   echoMarker,
@@ -19,26 +19,17 @@ import {
   expectTerminalAnswers,
   launchManagedWorkspace,
   openTerminalTab,
-  ORCAD_TEMPLATE,
+  relaunchManagedApp,
   selectTerminalTab,
+  skipUnlessManagedDockerHost,
   terminalTabIds,
   typeInTerminal,
   waitForPane,
   withManagedHost
 } from './helpers/orcad-managed-workspace'
 
-test.skip(
-  !ORCAD_TEMPLATE || process.env.ORCA_E2E_SSH_DOCKER !== '1',
-  'Needs Docker and server template'
-)
+skipUnlessManagedDockerHost()
 test.skip(process.platform === 'win32', 'The Docker SSH host uses POSIX tooling')
-
-function relaunchable(app: ElectronApplication | null): ElectronApplication {
-  if (!app) {
-    throw new Error('No live launch to close')
-  }
-  return app
-}
 
 function sshStatus(page: Page, targetId: string): Promise<string | null> {
   return page.evaluate(
@@ -142,13 +133,7 @@ test('managed tabs restore exactly once, and a tab closed while disconnected sta
     expect(expected).toEqual(expect.arrayContaining(opened))
 
     for (let cycle = 0; cycle < 2; cycle += 1) {
-      await fixture.session.close(relaunchable(fixture.app))
-      fixture.app = null
-      const relaunched = await fixture.session.launch()
-      fixture.app = relaunched.app
-      page = relaunched.page
-      await waitForSessionReady(page)
-      await waitForStartupWorktreeRefresh(page)
+      page = await relaunchManagedApp(fixture)
       await activateManagedWorkspace(page, seeded.worktreeId, environmentId)
       expect(await settledTabIds(page, seeded.worktreeId), `relaunch ${cycle + 1}`).toEqual(
         expected
@@ -171,18 +156,18 @@ test('managed tabs restore exactly once, and a tab closed while disconnected sta
     // The lid-closed shape: close a tab while disconnected, then reconnect.
     const closed = opened[2]
     await page.evaluate((targetId) => window.api.ssh.disconnect({ targetId }), seeded.targetId)
-    await page.evaluate((tabId) => window.__store!.getState().closeTab(tabId), closed)
+    // Why the tab's own X: the user's close path holds a close the host cannot hear yet, and
+    // the store's bare closeTab only passed while the disconnected host was silently redialed.
+    const closedTab = page.locator(`[data-testid="sortable-tab"][data-tab-id="${closed}"]`).first()
+    await closedTab.hover()
+    await closedTab.getByRole('button', { name: /^Close tab /i }).click()
+    await expect(closedTab).toHaveCount(0, { timeout: 15_000 })
     await reconnect(page, seeded.targetId)
     const remaining = expected.filter((id) => id !== closed)
     expect(await settledTabIds(page, seeded.worktreeId)).toEqual(remaining)
-    await fixture.session.close(relaunchable(fixture.app))
-    fixture.app = null
-    const final = await fixture.session.launch()
-    fixture.app = final.app
-    await waitForSessionReady(final.page)
-    await waitForStartupWorktreeRefresh(final.page)
-    await activateManagedWorkspace(final.page, seeded.worktreeId, environmentId)
-    expect(await settledTabIds(final.page, seeded.worktreeId)).toEqual(remaining)
+    const final = await relaunchManagedApp(fixture)
+    await activateManagedWorkspace(final, seeded.worktreeId, environmentId)
+    expect(await settledTabIds(final, seeded.worktreeId)).toEqual(remaining)
   })
 })
 

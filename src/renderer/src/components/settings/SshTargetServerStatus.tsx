@@ -5,8 +5,10 @@ import { translate } from '@/i18n/i18n'
 import { cn } from '@/lib/utils'
 import { useAppStore } from '@/store'
 import { Button } from '../ui/button'
-import { sshHostServerStatusLine } from './ssh-host-server-status-copy'
+import { sshHostServerStatusLine } from '@/ssh/ssh-host-server-status-copy'
 import { SshHostChangedActions } from './SshHostChangedActions'
+import { SshHostMoveAnywayAction } from './SshHostMoveAnywayAction'
+import { SshHostRestartServerAction } from './SshHostRestartServerAction'
 
 /** Whether this SSH host's managed Orca server serves it, and why not when it doesn't. */
 export function SshTargetServerStatus({
@@ -49,6 +51,12 @@ export function SshTargetServerStatus({
         </Collapsible>
       ) : null}
       <SshHostChangedActions target={target} onChanged={onChanged} />
+      <SshHostRestartServerAction status={state?.managedServer} onChanged={onChanged} />
+      <SshHostMoveAnywayAction
+        target={target}
+        status={state?.managedServer}
+        onChanged={onChanged}
+      />
     </div>
   )
 }

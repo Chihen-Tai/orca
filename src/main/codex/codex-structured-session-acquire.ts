@@ -22,7 +22,6 @@ import {
   codexProviderHandleLink,
   codexSpawnedProcessIdentity
 } from './codex-structured-owner-identity'
-import { codexStructuredChildEnvironment } from './codex-structured-child-environment'
 import { openCodexThread } from './codex-structured-thread-open'
 import { withCodexVisualsThreadConfig } from './codex-structured-visuals'
 import {
@@ -78,7 +77,7 @@ export async function acquireCodexStructuredSession(input: {
       ? provenHandle.nativeId
       : null
   const subagentExecutions = new CodexSubagentExecutions()
-  const dispatchEchoes = createCodexDispatchEchoes()
+  const dispatchEchoes = createCodexDispatchEchoes(() => deps.onHeldSendsChanged?.({ sessionId }))
   let account: AgentSessionAccountKind | undefined
   // Minted before the translator, which names this connection's frame rows with it.
   const acquisitionGeneration = mintCodexAcquisitionGeneration(deps)
@@ -115,7 +114,11 @@ export async function acquireCodexStructuredSession(input: {
     }
     acquisitions.assertCurrent(sessionId, attempt)
     const launch = await deps
-      .resolveLaunch({ identity: acquireInput.identity })
+      .resolveLaunch({
+        identity: acquireInput.identity,
+        spawnToken: acquireInput.spawnToken,
+        ...(acquireInput.permissionMode ? { permissionMode: acquireInput.permissionMode } : {})
+      })
       .catch((error: unknown) => {
         throw new AgentSessionPreSpawnError(error)
       })
@@ -126,13 +129,15 @@ export async function acquireCodexStructuredSession(input: {
         command: launch.command,
         args: launch.args,
         cwd: launch.cwd,
-        ...codexStructuredChildEnvironment(launch, acquireInput.spawnToken, sessionId)
+        ...(launch.env ? { env: launch.env } : {}),
+        ...(launch.envToDelete ? { envToDelete: launch.envToDelete } : {})
       },
       {
         onNotification: codexAcquisitionNotificationHandler({
           acquisition,
           sessionId,
           dispatchEchoes,
+          primaryThreadId: () => primaryThreadId,
           notificationRetries,
           deliver: input.deliver,
           now: deps.now ?? Date.now
@@ -220,8 +225,9 @@ export async function acquireCodexStructuredSession(input: {
     assertCodexConnectionOpen(connection, sessionId)
     acquisitions.deleteIfCurrent(sessionId, attempt)
     // Where this session's child work goes: the host's records, after each frame is journaled.
-    const sink = codexChildWorkSink(sessionId, deps)
+    const sink = codexChildWorkSink(sessionId, deps, acquireInput.events)
     const session: CodexSession = {
+      events: acquireInput.events,
       account,
       connection,
       ...codexSessionLifecycle(acquireInput.fence, acquired.acquisitionGeneration as string),

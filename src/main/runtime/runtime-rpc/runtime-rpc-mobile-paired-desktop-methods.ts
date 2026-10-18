@@ -1,3 +1,5 @@
+import { ORCA_SIDEBAR_INPUTS_IS_MAIN } from '../../../shared/sidebar-inputs-switch'
+
 /** Phone methods the relaying Mac always answers itself, even when the call names a server. */
 export const PAIRED_DESKTOP_METHODS = [
   // Device and pairing concerns of the phone's own pairing.
@@ -12,9 +14,12 @@ export const PAIRED_DESKTOP_METHODS = [
   'notifications.unsubscribe',
   'pairing.getEndpoints',
   'pairing.provisionRelay',
+  'pairing.registerDeviceKey',
   // The configured servers the desktop shows, and their workspace lists as it last fetched them.
   'mobileRelay.hosts.list',
   'mobileRelay.hosts.worktrees',
+  // The sidebar's Project grouping inputs, as the desktop window last published them.
+  'mobileRelay.projectSections',
   'speech.dictation.cancel',
   'speech.dictation.chunk',
   'speech.dictation.finish',
@@ -28,7 +33,6 @@ export const PAIRED_DESKTOP_METHODS = [
   // The Mac republishes host changes it already observes.
   'runtime.clientEvents.subscribe',
   'runtime.clientEvents.unsubscribe',
-  'status.get',
   'diagnostics.memory',
   'stats.summary',
   'ui.get',
@@ -42,6 +46,13 @@ export const PAIRED_DESKTOP_METHODS = [
   'accounts.selectCodexForTarget',
   'accounts.subscribe',
   'accounts.unsubscribe',
+  // Jira credentials and issue mutations remain desktop-only.
+  'jira.attachmentImage',
+  'jira.getIssue',
+  'jira.issueComments',
+  'jira.listIssues',
+  'jira.searchIssues',
+  'jira.status',
   'linear.addIssueComment',
   'linear.agentSearchIssues',
   'linear.connect',
@@ -97,10 +108,6 @@ export const PAIRED_DESKTOP_METHODS = [
   'settings.updateTerminalQuickCommands',
   'terminal.getAutoRestoreFit',
   'terminal.setAutoRestoreFit',
-  // SSH targets are configured on the Mac.
-  'ssh.connect',
-  'ssh.getState',
-  'ssh.listRemovedTargetLabels',
-  'ssh.listTargetSummaries',
-  'ssh.listTargets'
+  // Switch point: the per-section collapse write and the sidebar feed exist only with ORCA_SIDEBAR_INPUTS=main.
+  ...(ORCA_SIDEBAR_INPUTS_IS_MAIN ? (['ui.setCollapsed', 'sidebarInputs.read'] as const) : [])
 ] as const

@@ -1,7 +1,6 @@
 /**
  * The owner of a workspace as a {@link HostAuthority}, decided from the rows alone. It never reads
- * the "Active Server" focus setting; the one transitional path that does is
- * {@link resolveOwnerWithLegacyFocus}, which counts every answer focus changed.
+ * the "Active Server" focus setting.
  */
 import {
   getRepoSshConnectionId,
@@ -10,7 +9,11 @@ import {
   type ExecutionHostId
 } from '../../../shared/execution-host'
 import { getRepoIdFromWorktreeId } from '@/store/slices/worktree-helpers'
-import { findIndexedRepoOwnerForHost } from './worktree-runtime-owner-index'
+import {
+  findIndexedRepoOwnerForHost,
+  resolveIndexedFolderWorkspaceOwner,
+  resolveIndexedProjectGroupOwner
+} from './worktree-runtime-owner-index'
 import {
   hostAuthorityFromOperationRoute,
   SELF_LOCAL_AUTHORITY,
@@ -24,9 +27,14 @@ import {
   type WorktreeOperationRouteResolution,
   type WorktreeOperationRouteState
 } from './worktree-operation-route'
-import { getNestedSshTargetIdForFolderWorkspace } from './folder-workspace-runtime-owner'
+import {
+  getExplicitRuntimeEnvironmentIdForFolderWorkspace,
+  getNestedSshTargetIdForFolderWorkspace
+} from './folder-workspace-runtime-owner'
 import { parseWorkspaceKey } from '../../../shared/workspace-scope'
-import { hostRouteForAuthority, type RuntimeClientTarget } from '@/runtime/runtime-client-target'
+import { warnAmbiguousOwnerOnce } from './ambiguous-owner-warning'
+import { hostRouteForAuthority } from '@/runtime/runtime-client-target'
+import type { RuntimeClientTarget } from '../../../shared/runtime-client-target'
 
 /** A worktree id, a `folder:` workspace key, or the floating workspace; `hostId` when the row names one. */
 export type WorkspaceOwnerRef = { workspaceId: string; hostId?: ExecutionHostId }
@@ -41,7 +49,33 @@ function toOwnerMatch(
   if (authority === 'contradictory') {
     return { kind: 'ambiguous' }
   }
-  return authority ? { kind: 'resolved', owner: authority } : { kind: 'missing' }
+  if (authority) {
+    return { kind: 'resolved', owner: authority }
+  }
+  // Why: a route that names a host (e.g. the unresolved-owner sentinel) is contested, not absent;
+  // `missing` would let callers read it as this app.
+  return resolution.route.executionHostId || resolution.route.runtimeEnvironmentId?.trim()
+    ? { kind: 'ambiguous' }
+    : { kind: 'missing' }
+}
+
+/**
+ * A folder workspace, or the project group an unstamped folder inherits its host from, that two
+ * hosts publish. The route resolvers read the first as missing and the second as local, because
+ * their unqualified lookups collapse a twin to "no row" before any host fallback runs.
+ */
+function isFolderTwin(state: WorktreeOperationRouteState, folderWorkspaceId: string): boolean {
+  const folder = resolveIndexedFolderWorkspaceOwner(state.folderWorkspaces, folderWorkspaceId)
+  if (folder.kind !== 'resolved') {
+    return folder.kind === 'ambiguous'
+  }
+  // Why: the folder's own host stamp or SSH connection names its owner; only an inherited host is moot.
+  return (
+    !folder.owner.executionHostId?.trim() &&
+    !folder.owner.connectionId?.trim() &&
+    resolveIndexedProjectGroupOwner(state.projectGroups, folder.owner.projectGroupId).kind ===
+      'ambiguous'
+  )
 }
 
 function resolveRoute(
@@ -54,6 +88,11 @@ function resolveRoute(
   const hostId =
     ref.hostId ??
     (state.activeWorktreeId === ref.workspaceId ? state.activeWorkspaceExecutionHostId : null)
+  const scope = parseWorkspaceKey(ref.workspaceId)
+  // Why: with no host named, nothing can pick a twin; refusing beats landing on the wrong machine.
+  if (!hostId && scope?.type === 'folder' && isFolderTwin(state, scope.folderWorkspaceId)) {
+    return { kind: 'ambiguous' }
+  }
   // Why strict: rival servers proxying the same `ssh:t` must not read as a directly dialed target.
   const match = toOwnerMatch(
     hostId
@@ -102,8 +141,30 @@ export function resolveOwner(
   state: WorktreeOperationRouteState,
   ref: WorkspaceOwnerRef
 ): ExecutionHostOwnerMatch<HostAuthority> {
-  // Why: focus is the only settings field the route resolvers read; blanking it makes this focus-free.
-  return resolveRoute({ ...state, settings: null }, ref)
+  return resolveRoute(focusFreeRouteState(state), ref)
+}
+
+/**
+ * Only the fields the route resolvers read, so per-row selectors do not copy the whole store.
+ * Focus is the only settings field they read; blanking it makes this focus-free.
+ */
+function focusFreeRouteState(state: WorktreeOperationRouteState): {
+  [K in keyof Required<WorktreeOperationRouteState>]: WorktreeOperationRouteState[K]
+} {
+  return {
+    settings: null,
+    runtimeEnvironments: state.runtimeEnvironments,
+    folderWorkspaces: state.folderWorkspaces,
+    projectGroups: state.projectGroups,
+    restoredRuntimeHostIdByWorkspaceSessionKey: state.restoredRuntimeHostIdByWorkspaceSessionKey,
+    activeWorktreeId: state.activeWorktreeId,
+    activeWorkspaceExecutionHostId: state.activeWorkspaceExecutionHostId,
+    repos: state.repos,
+    worktreesByRepo: state.worktreesByRepo,
+    detectedWorktreesByRepo: state.detectedWorktreesByRepo,
+    runtimeEnvironmentCatalogHydrated: state.runtimeEnvironmentCatalogHydrated,
+    removedRuntimeEnvironmentIds: state.removedRuntimeEnvironmentIds
+  }
 }
 
 /** Transport to the workspace's owner, or `null` when the rows name none or disagree. */
@@ -115,38 +176,67 @@ export function runtimeTargetForWorkspaceOwner(
   return match.kind === 'resolved' ? hostRouteForAuthority(match.owner).target : null
 }
 
-let legacyFocusFallbackCount = 0
-
-/** How many answers focus has changed since start; a slice drops its fallback once this stays 0. */
-export function getLegacyFocusFallbackCount(): number {
-  return legacyFocusFallbackCount
+function restoredFolderEnvironmentId(
+  state: WorktreeOperationRouteState,
+  ref: WorkspaceOwnerRef
+): string | null {
+  const scope = parseWorkspaceKey(ref.workspaceId)
+  return scope?.type === 'folder'
+    ? getExplicitRuntimeEnvironmentIdForFolderWorkspace(state, scope.folderWorkspaceId)
+    : null
 }
 
-export function resetLegacyFocusFallbackCountForTest(): void {
-  legacyFocusFallbackCount = 0
-}
+export type RuntimeEnvironmentOwnerMatch =
+  | { kind: 'resolved'; environmentId: string | null }
+  | { kind: 'ambiguous' }
 
-function sameOwnerMatch(
-  a: ExecutionHostOwnerMatch<HostAuthority>,
-  b: ExecutionHostOwnerMatch<HostAuthority>
-): boolean {
-  return JSON.stringify(a) === JSON.stringify(b)
+/**
+ * The paired server that owns the workspace (`null` for this app or a directly dialed SSH target),
+ * or `ambiguous` so mutating callers refuse instead of reading a twin as local.
+ */
+export function runtimeEnvironmentIdForWorkspaceOwner(
+  state: WorktreeOperationRouteState,
+  ref: WorkspaceOwnerRef
+): RuntimeEnvironmentOwnerMatch {
+  const match = resolveOwner(state, ref)
+  switch (match.kind) {
+    case 'ambiguous':
+      return match
+    case 'missing':
+      // Why: no row places it on a server, which has always read as this app's — except a folder
+      // whose saved session names its server before that server's folder catalog loads.
+      return { kind: 'resolved', environmentId: restoredFolderEnvironmentId(state, ref) }
+    case 'resolved': {
+      const { endpoint } = match.owner
+      switch (endpoint.kind) {
+        case 'self':
+          return { kind: 'resolved', environmentId: null }
+        case 'environment':
+          return { kind: 'resolved', environmentId: endpoint.environmentId }
+      }
+    }
+  }
 }
 
 /**
- * {@link resolveOwner} plus today's focus fallback, which lets a single focused server claim rows
- * that predate owner stamping. Transitional: callers move to {@link resolveOwner} slice by slice.
+ * The paired server that owns the workspace, or `null` for this app, a directly dialed SSH target
+ * or a twin: for readers and callers that keep main's path, where a twin names no server.
+ * `refusalAction` logs a twin once, for callers that skip a host write because of it.
  */
-export function resolveOwnerWithLegacyFocus(
+export function runtimeEnvironmentIdUnlessTwin(
   state: WorktreeOperationRouteState,
-  ref: WorkspaceOwnerRef
-): ExecutionHostOwnerMatch<HostAuthority> {
-  const legacy = resolveRoute(state, ref)
-  if (
-    state.settings?.activeRuntimeEnvironmentId?.trim() &&
-    !sameOwnerMatch(legacy, resolveOwner(state, ref))
-  ) {
-    legacyFocusFallbackCount += 1
+  workspaceId: string | null | undefined,
+  refusalAction?: string
+): string | null {
+  if (!workspaceId) {
+    return null
   }
-  return legacy
+  const owner = runtimeEnvironmentIdForWorkspaceOwner(state, { workspaceId })
+  if (owner.kind === 'resolved') {
+    return owner.environmentId
+  }
+  if (refusalAction) {
+    warnAmbiguousOwnerOnce(workspaceId, refusalAction)
+  }
+  return null
 }

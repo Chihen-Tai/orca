@@ -1,7 +1,6 @@
 import { constants, copyFile, lstat, mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { throwIfSignalAborted, waitForPromiseWithSignal } from '../../shared/abort-signal-reason'
-import type { ChildProcessHandle } from '@orca/process-host/process-spec'
 import { readAuthorizedDocPreviewFile } from '../../shared/doc-preview-file-access'
 import { renameLocalPathSerializedByDestination } from '../destination-serialized-local-rename'
 import type { resolveAuthorizedPath as ResolveAuthorizedPath } from '../ipc/filesystem-auth'
@@ -10,18 +9,16 @@ import { assertNotExists, rethrowWithUserMessage } from '../ipc/filesystem-creat
 import { classifyFilesystemDirectoryEntries } from '../ipc/filesystem-symlink-directory-entries'
 import { getLocalGitOptionsForRegisteredWorktree } from '../ipc/local-worktree-runtime-options'
 import { listMarkdownDocuments } from '../ipc/markdown-documents'
-import type { Store } from '../persistence'
+import type { RuntimeStore } from '../runtime/runtime-store-contract'
 import { runBundledRipgrepTextSearch } from '../ripgrep/bundled-ripgrep-text-search'
-import { parseWslPath } from '../wsl'
+import { resolveBundledRipgrepWslRouting } from '../ripgrep/bundled-ripgrep-wsl-routing'
 import type { IFilesystemProvider } from './filesystem-provider-contract'
 
 export type LocalFilesystemProviderOptions = {
   /** Read lazily so a call that fails earlier never touches the store. */
-  requireStore(): Store
+  requireStore(): RuntimeStore
   /** Injected: the auth layer reaches the host router, so importing it here would be a cycle. */
   resolveAuthorizedPath: typeof ResolveAuthorizedPath
-  /** Registers a running text search for cancellation; returns its release. */
-  onTextSearchSpawn?: (child: ChildProcessHandle) => () => void
 }
 
 /**
@@ -137,19 +134,19 @@ export function createLocalFilesystemProvider(
         signal
       )
       throwIfSignalAborted(signal)
-      const { wslDistro } = getLocalGitOptionsForRegisteredWorktree(
-        store,
-        searchOptions.rootPath,
-        rootPath
+      const { wslDistro, wslDistroForOutput } = resolveBundledRipgrepWslRouting(
+        rootPath,
+        getLocalGitOptionsForRegisteredWorktree(store, searchOptions.rootPath, rootPath).wslDistro
       )
       return runBundledRipgrepTextSearch({
         options: searchOptions,
         rootPath,
         resultRootPath: rootPath,
         wslDistro,
-        wslDistroForOutput: parseWslPath(rootPath)?.distro ?? wslDistro,
+        wslDistroForOutput,
         signal,
-        onSpawn: options.onTextSearchSpawn ?? (() => () => undefined)
+        // Why: request abort owns cancellation; only the renderer IPC search keeps a by-id registry.
+        onSpawn: () => () => undefined
       })
     },
     listMarkdownDocuments: (rootPath) =>

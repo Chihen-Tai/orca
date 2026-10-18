@@ -3,7 +3,7 @@ import type { RuntimeTransportMetadata } from '../../../shared/runtime-bootstrap
 import { watchRuntimeMetadataOwnership } from '../runtime-metadata-ownership-watch'
 import type { RpcTransport } from '../rpc/transport'
 import { UnixSocketTransport } from '../rpc/unix-socket-transport'
-import { WebSocketTransport } from '../rpc/ws-transport'
+import { PinnedPortUnavailableError, WebSocketTransport } from '../rpc/ws-transport'
 import {
   clearWsFallbackPort,
   readWsFallbackPort,
@@ -99,6 +99,7 @@ export class RuntimeRpcLifecycle extends RuntimeRpcWebSocketDispatch {
             host,
             port: this.wsPort,
             preferPinnedPort: this.preferPinnedWsPort,
+            requirePinnedPort: this.requirePinnedWsPort,
             // Why: stable fallback port across restarts keeps paired devices' endpoints valid (STA-1511); wsPort 0 = random (E2E).
             ...(this.wsPort !== 0 ? { fallbackPort: readWsFallbackPort(this.userDataPath) } : {})
           })
@@ -112,7 +113,12 @@ export class RuntimeRpcLifecycle extends RuntimeRpcWebSocketDispatch {
         } catch (error) {
           // Why: WebSocket transport is supplementary; on failure (e.g. port in use) continue with Unix socket only.
           console.error('[runtime] Failed to start WebSocket transport:', error)
+          this.mobileSocketWiring?.dispose()
           this.mobileSocketWiring = null
+          if (error instanceof PinnedPortUnavailableError) {
+            await socketTransport.stop().catch(() => {})
+            throw error
+          }
         }
       }
     }
@@ -175,6 +181,7 @@ export class RuntimeRpcLifecycle extends RuntimeRpcWebSocketDispatch {
     host: string
     port: number
     preferPinnedPort: boolean
+    requirePinnedPort?: boolean
     fallbackPort?: number
   }): Promise<{ transport: WebSocketTransport; endpoint: string }> {
     const deviceRegistry = this.deviceRegistry
@@ -188,6 +195,7 @@ export class RuntimeRpcLifecycle extends RuntimeRpcWebSocketDispatch {
       staticRoot: this.webClientRoot,
       ...(options.fallbackPort !== undefined ? { fallbackPort: options.fallbackPort } : {}),
       ...(options.preferPinnedPort ? { preferPinnedPort: true } : {}),
+      ...(options.requirePinnedPort ? { requirePinnedPort: true } : {}),
       fallbackLadder: wsFallbackPortLadder(this.wsPort)
     })
     const mobileSocketWiring = this.ensureMobileSocketWiring(deviceRegistry, e2eeKeypair)
@@ -235,7 +243,7 @@ export class RuntimeRpcLifecycle extends RuntimeRpcWebSocketDispatch {
             sendBinary,
             undefined,
             socket.ws,
-            socket.device.deviceToken,
+            socket.device.deviceToken ?? null,
             socket
           )
         )
@@ -267,7 +275,7 @@ export class RuntimeRpcLifecycle extends RuntimeRpcWebSocketDispatch {
         this.runtime.cancelMobileDictationForConnection(socket.connectionId)
         this.binaryMessageRouter.deleteConnection(socket.connectionId)
         if (!hasOtherConnections) {
-          this.runtime.onClientDisconnected(socket.device.deviceToken)
+          this.runtime.onClientDisconnected(socket.device.clientId)
         }
       },
       // Why: relay attempts are authorized upstream; only direct failures should prompt local re-pairing.

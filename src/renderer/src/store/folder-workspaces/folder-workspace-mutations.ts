@@ -8,7 +8,10 @@ import {
   assertRuntimeEnvironmentCapability,
   callRuntimeRpc
 } from '../../runtime/runtime-rpc-client'
-import { runtimeTargetForOwnerEnvironment } from '../../runtime/runtime-client-target'
+import {
+  runtimeTargetForOwnerEnvironment,
+  getRuntimeTargetHostId
+} from '../../runtime/runtime-client-target'
 import { folderWorkspaceKey } from '../../../../shared/workspace-scope'
 import { formatFolderWorkspaceCreateError } from '../../lib/folder-workspace-path-status'
 import {
@@ -17,7 +20,6 @@ import {
 } from '@/lib/folder-workspace-runtime-owner'
 import { FolderWorkspaceUpdateCoordinator } from '../slices/folder-workspace-update-coordinator'
 import type { FolderWorkspaceUpdates, RepoSlice } from '../repos/repo-state'
-import { getRuntimeTargetHostId } from '../runtime-target-host'
 import { adoptFromEndpoint } from '../adopt-from-endpoint'
 import {
   folderWorkspaceOwnerTarget,
@@ -25,10 +27,10 @@ import {
   mergeFolderWorkspaceUpdateResponse
 } from './folder-workspace-routing'
 import {
-  getFolderWorkspaceHostId,
   getFolderWorkspaceUpdateIdentity,
   reconcileFailedFolderWorkspaceUpdate
 } from './folder-workspace-catalog'
+import { getFolderWorkspaceHostId } from '../../../../shared/folder-workspace-execution-host'
 import {
   captureWorkspaceChatDraftKeys,
   deleteWorkspaceChatDrafts

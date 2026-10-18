@@ -68,14 +68,15 @@ export async function acquireOwner(
     } catch (error) {
       throw new AgentSessionPreSpawnError(error)
     }
+    const permissionMode = await input.launchPermissionMode?.(record)
     const attempt = mintStructuredAgentSessionStartupAttempt({
       record,
       identity: journalIdentityFor(record, input.params),
       // Retries must recover the original reservation, not mint a second child.
       spawnToken,
+      ...(permissionMode ? { permissionMode } : {}),
       ...(input.eventSink ? { events: input.eventSink } : {}),
-      ...(input.acquireSignal ? { signal: input.acquireSignal } : {}),
-      optionRevision: input.optionRevision
+      ...(input.acquireSignal ? { signal: input.acquireSignal } : {})
     })
     const progress = input.onStartupAttempt?.(attempt)
     const acquired = await input.adapter.acquire({
@@ -127,7 +128,7 @@ export async function acquireOwner(
     const proved = await input.store.proveOwner({
       sessionId: record.sessionId,
       fence,
-      link: acquired.link,
+      ...(acquired.link ? { link: acquired.link } : {}),
       now: input.now(),
       ...(options ? { options } : {})
     })

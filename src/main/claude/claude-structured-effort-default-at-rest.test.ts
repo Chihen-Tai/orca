@@ -27,7 +27,8 @@ import {
   fakeClaude,
   identityFor,
   recordingJournalSink,
-  claudeStartupSettled
+  claudeStartupSettled,
+  claudeOpened
 } from './claude-structured-session-test-support'
 
 const SESSION = 'session-1'
@@ -144,7 +145,7 @@ function restingRecord(options: Record<string, string>): AgentSessionRecord {
   return {
     provider: 'claude',
     accountHome: { variable: 'CLAUDE_CONFIG_DIR', path: ACCOUNT_HOME },
-    location: { wslDistro: null },
+    location: { executionHostId: 'local', wslDistro: null },
     // Why released: a chat at rest has no live claim, so its next start reads the current account.
     lease: { claimStatus: 'released' },
     options
@@ -188,7 +189,7 @@ function readAtRest(store: AgentModelCatalogStore, record: AgentSessionRecord) {
     openConversation: async () => resting,
     conversation: async () => resting
   } as unknown as StructuredAgentSessionMutationContext
-  return readStructuredAgentSessionOptions(context, SESSION)
+  return readStructuredAgentSessionOptions(context, SESSION, { readsWithoutModel: true })
 }
 
 function pickerEffort(result: Awaited<ReturnType<typeof readAtRest>>, agent = 'claude') {
@@ -268,7 +269,7 @@ describe('Claude effort default at rest', () => {
     const record = {
       provider: 'codex',
       accountHome: { variable: 'CODEX_HOME', path: '/accounts/codex' },
-      location: { wslDistro: null },
+      location: { executionHostId: 'local', wslDistro: null },
       options: { model: 'gpt-unlisted', effort: 'high' }
     } as unknown as AgentSessionRecord
     const listing = {
@@ -347,7 +348,7 @@ describe('Claude effort default at rest', () => {
     const record = {
       provider: 'codex',
       accountHome: { variable: 'CODEX_HOME', path: '/accounts/codex' },
-      location: { wslDistro: null },
+      location: { executionHostId: 'local', wslDistro: null },
       options: { model: 'gpt-5.5', effort: 'high' }
     } as unknown as AgentSessionRecord
 
@@ -364,7 +365,7 @@ describe('Claude effort default at rest', () => {
     const record = {
       provider: 'codex',
       accountHome: { variable: 'CODEX_HOME', path: '/accounts/codex' },
-      location: { wslDistro: null },
+      location: { executionHostId: 'local', wslDistro: null },
       options: { model: 'gpt-5.5' }
     } as unknown as AgentSessionRecord
     store.recordSuccess(
@@ -390,20 +391,19 @@ describe('Claude effort default at rest', () => {
 
     const result = await readAtRest(store, record)
 
-    expect(result.current).toEqual({ model: 'gpt-5.5' })
+    expect(result.current).toEqual({ model: 'gpt-5.5', permissionMode: 'ask' })
   })
 
   it("never saves the applied effort as the chat's pick, yet shows it at rest", async () => {
     const store = new AgentModelCatalogStore()
     const events: ClaudeStructuredSessionEvent[] = []
-    await startChild(store, undefined, events)
+    const adapter = await startChild(store, undefined, events)
 
-    const started = events.find((event) => event.type === 'started')
-    const reported = started?.type === 'started' ? started.reportedOptions : null
+    const reported = (await claudeOpened(adapter, SESSION)).reportedOptions
     expect(reported).not.toHaveProperty('effort')
     // The record the start persists names the listed row the catalog learned under.
     const record = restingRecord(
-      nativeSessionOptionsFromReport({ reported: reported!, restoreSkipped: [] })
+      nativeSessionOptionsFromReport({ reported: reported, restoreSkipped: [] })
     )
     expect(record.options).toEqual({ model: 'opus[1m]' })
     expect((await readAtRest(store, record)).current.effort).toBe('medium')

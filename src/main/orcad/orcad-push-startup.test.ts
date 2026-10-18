@@ -56,6 +56,13 @@ vi.mock('./orcad-app-paths', () => ({
   resolveOrcadPath: () => state.root,
   resolveUserDataPath: () => state.root
 }))
+// The fake store has no account settings; orcad-account-services.test.ts covers the real services.
+// Migration targets the real ~/.orca, which these fixtures do not redirect.
+vi.mock('./orcad-plaintext-credential-migration', () => ({
+  orcadCredentialRoot: () => state.root,
+  migratePlaintextCredentials: () => ({ sealed: 0, failed: 0 })
+}))
+vi.mock('./orcad-account-services', () => ({ createOrcadAccountServices: () => null }))
 vi.mock('./orcad-browser-provider', () => ({ resolveOrcadBrowserProvider: state.browserProvider }))
 vi.mock('./orcad-instance-lock', () => ({
   acquireOrcadInstanceLock: () => ({
@@ -79,12 +86,11 @@ vi.mock('./orcad-automations', () => ({
 vi.mock('../runtime/agent-state-rules/agent-state-rules-live-update', () => ({
   startAgentStateRulesLiveUpdates: () => {}
 }))
-vi.mock('../daemon/daemon-init', () => ({ daemonOwnsFreshPersistentPtys: () => false }))
-vi.mock('../ipc/pty', () => ({
-  registerHeadlessPtyRuntime: async () => {},
-  getLocalPtyProvider: () => null,
-  getSshPtyProvider: () => null
+vi.mock('../daemon/daemon-provider-state', () => ({ daemonOwnsFreshPersistentPtys: () => false }))
+vi.mock('../ipc/pty/register-headless-runtime', () => ({
+  registerHeadlessPtyRuntime: async () => {}
 }))
+vi.mock('../ipc/pty/provider/registry', () => ({ getLocalPtyProvider: () => null }))
 vi.mock('./orcad-profile-state-startup', () => ({
   createOrcadProfileStateStartup: async () => {
     const error = state.profileStartupErrors.shift()
@@ -124,13 +130,17 @@ vi.mock('../server/serve-readiness', () => ({
 }))
 vi.mock('../runtime/orca-runtime', () => ({
   OrcaRuntimeService: class {
+    readonly sidebarFacts = null
     getRuntimeId() {
       return 'headless-runtime'
     }
     rehydrateClientHostedBrowserPages() {}
+    restoreHostAccountLaunchEnv() {}
     async refreshRestoredOrchestrationAuthority() {}
     async reconcileLegacyWorkerTerminals() {}
+    async installPendingOrcadMigrationShellHistory() {}
     async stopLegacyWorkerTerminalRecovery() {}
+    async closeNotificationDismissals() {}
     syncWindowGraph() {}
     setMobilePushRegistrar(
       registrar: Parameters<RuntimeMobileNotificationController['setPushRegistrar']>[0]
@@ -179,10 +189,13 @@ vi.mock('../runtime/push/push-gateway-client', () => ({
 }))
 
 beforeEach(() => {
+  // startOrcad canonicalizes this; stubbing restores the prior value after each test.
+  vi.stubEnv('ORCA_USER_DATA_PATH', '')
   state.onSettingsChanged.mockReturnValue(state.removeSettingsListener)
 })
 
 afterEach(() => {
+  vi.unstubAllEnvs()
   rmSync(state.root, { recursive: true, force: true })
   state.profileStartupErrors.length = 0
   profile.settings = {}
@@ -192,8 +205,10 @@ afterEach(() => {
 it('refuses recovery overlap before initializing the browser provider or runtime', async () => {
   state.root = mkdtempSync(join(tmpdir(), 'orca-headless-recovery-'))
   const maintenance = acquireProfileStateMaintenance(state.root)
-  const { startOrcad } = await import('./orcad-entry')
+  const { startOrcad, parseArgs } = await import('./orcad-entry')
+  const commandArguments = await import('./orcad-command-arguments')
   try {
+    expect(parseArgs).toBe(commandArguments.parseArgs)
     await expect(startOrcad({ noPairing: true, json: true })).rejects.toThrow()
     expect(state.browserProvider).not.toHaveBeenCalled()
     expect(state.rpcStarted).toBe(false)

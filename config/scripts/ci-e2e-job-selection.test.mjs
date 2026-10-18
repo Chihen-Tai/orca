@@ -5,6 +5,7 @@ import { runProcess } from '@orca/process-host'
 import {
   classifyE2eJobs,
   DEDICATED_E2E_SPECS,
+  MANAGED_SSH_E2E_SPEC_PREFIX,
   NATIVE_IME_E2E_SPEC,
   NODE_NETWORK_E2E_SPEC,
   selectGeneralE2eSpecs
@@ -41,18 +42,45 @@ it.each([
   expect(selectPrE2eSpecs([path])).toContain('tests/e2e/ssh-orcad-browser-routing.spec.ts')
 })
 
+it.each([
+  'src/renderer/src/lib/workspace-browser-tab-open.ts',
+  'src/renderer/src/lib/http-link-destinations.ts',
+  'src/renderer/src/components/terminal-pane/terminal-http-link-source-owner.ts'
+])('routes the managed terminal link oracle from %s', (path) => {
+  expect(selectPrE2eSpecs([path])).toContain('tests/e2e/ssh-orcad-terminal-browser-link.spec.ts')
+})
+
+it.each([
+  'src/shared/desktop-browser-bridge-protocol.ts',
+  'src/main/runtime/desktop-browser-bridge/desktop-browser-bridge-route.ts',
+  'src/main/browser/desktop-browser-bridge/desktop-browser-bridge-executor.ts',
+  'src/main/ipc/desktop-browser-bridge-wiring.ts',
+  'src/main/runtime/rpc/methods/desktop-browser-bridge.ts'
+])('routes the managed desktop browser bridge oracle from %s', (path) => {
+  expect(selectPrE2eSpecs([path])).toContain('tests/e2e/ssh-orcad-desktop-browser-bridge.spec.ts')
+})
+
 const workflow = parse(readFileSync('.github/workflows/e2e.yml', 'utf8'))
 const prWorkflow = parse(readFileSync('.github/workflows/pr.yml', 'utf8'))
 const classify = (specs) => classifyE2eJobs(JSON.stringify(specs))
 
+function expectManagedSshLane(spec) {
+  expect(classify([spec])).toEqual({ e2e_run_changed: false, e2e_needs_build: true })
+  expect(spec.startsWith(MANAGED_SSH_E2E_SPEC_PREFIX)).toBe(true)
+  const lane = workflow.jobs['orcad-ssh-docker']
+  expect(lane.if).toContain(`contains(inputs.test_files, '${MANAGED_SSH_E2E_SPEC_PREFIX}')`)
+  expect(
+    lane.steps.some(
+      (step) =>
+        step.run?.includes(` ${MANAGED_SSH_E2E_SPEC_PREFIX} `) &&
+        step.env?.ORCA_E2E_SSH_DOCKER === '1'
+    )
+  ).toBe(true)
+}
+
 it('runs real browser file-drop ownership in the template-building Docker job', () => {
   const spec = 'tests/e2e/ssh-orcad-browser-drop-owner.spec.ts'
-  expect(classify([spec])).toEqual({ e2e_run_changed: false, e2e_needs_build: true })
-  const job = workflow.jobs['orcad-auto-convert-docker']
-  expect(job.if).toContain(spec)
-  expect(
-    job.steps.some((step) => step.run?.includes(spec) && step.env?.ORCA_E2E_SSH_DOCKER === '1')
-  ).toBe(true)
+  expectManagedSshLane(spec)
   for (const source of [
     'src/renderer/src/lib/file-preview.ts',
     'src/renderer/src/lib/workspace-file-drag.ts',
@@ -87,7 +115,7 @@ it('keeps Electron build and native prerequisites for every consumer requiring t
   }
   expect(workflow.jobs['ssh-browser-network-route'].needs).toBeUndefined()
   for (const name of ['e2e', 'changed-e2e']) {
-    expect(workflow.jobs[name].needs, name).toEqual(['build', 'prepare-native-cache'])
+    expect(workflow.jobs[name].needs, name).toEqual(['build'])
   }
 })
 
@@ -122,11 +150,9 @@ it('applies allocation hints only to PRs and retains other callers and full refe
       default: true
     })
   }
-  for (const name of ['build', 'prepare-native-cache']) {
-    expect(workflow.jobs[name].if).toBe(
-      "inputs.test_files == '' || github.event_name != 'pull_request' || inputs.needs_build"
-    )
-  }
+  expect(workflow.jobs.build.if).toBe(
+    "inputs.test_files == '' || github.event_name != 'pull_request' || inputs.needs_build"
+  )
   expect(workflow.jobs.e2e.if).toBe("inputs.test_files == ''")
   const changed = workflow.jobs['changed-e2e']
   expect(changed.if).toContain("github.event_name != 'pull_request' || inputs.run_changed_e2e")
@@ -135,6 +161,7 @@ it('applies allocation hints only to PRs and retains other callers and full refe
   expect(command).not.toContain('mapfile -t TEST_FILES < <(')
   const fallback = [...command.matchAll(/\. != "([^"]+)"/g)].map((match) => match[1])
   expect(fallback).toEqual(DEDICATED_E2E_SPECS)
+  expect(command).toContain(`(startswith("${MANAGED_SSH_E2E_SPEC_PREFIX}") | not)`)
 })
 
 it('publishes conservative hints for malformed evidence and refuses a malformed consumer list', async () => {
@@ -182,15 +209,7 @@ it.each([
 ])('routes %s to the template-building editor ownership lane', (file) => {
   const spec = 'tests/e2e/ssh-orcad-editor-ownership.spec.ts'
   expect(selectPrE2eSpecs([file])).toContain(spec)
-  expect(classify([spec])).toEqual({
-    e2e_run_changed: false,
-    e2e_needs_build: true
-  })
-  const job = workflow.jobs['orcad-auto-convert-docker']
-  expect(job.if).toContain(spec)
-  expect(job.steps.find((step) => step.name === 'Convert a relay-era Docker host').run).toContain(
-    spec
-  )
+  expectManagedSshLane(spec)
 })
 
 const MARKDOWN_CONVERSION_SPEC = 'tests/e2e/ssh-orcad-markdown-conversion.spec.ts'
@@ -223,15 +242,7 @@ it.each([
   ]
 ])('routes %s to the template-building Markdown lane %s', (file, spec) => {
   expect(selectPrE2eSpecs([file])).toContain(spec)
-  expect(classify([spec])).toEqual({
-    e2e_run_changed: false,
-    e2e_needs_build: true
-  })
-  const job = workflow.jobs['orcad-auto-convert-docker']
-  expect(job.if).toContain(spec)
-  expect(job.steps.find((step) => step.name === 'Convert a relay-era Docker host').run).toContain(
-    spec
-  )
+  expectManagedSshLane(spec)
 })
 
 it.each([
@@ -240,12 +251,7 @@ it.each([
 ])('routes %s to the template-building editor watch recovery lane', (file) => {
   const spec = 'tests/e2e/ssh-orcad-editor-watch-recovery.spec.ts'
   expect(selectPrE2eSpecs([file])).toContain(spec)
-  expect(classify([spec])).toEqual({ e2e_run_changed: false, e2e_needs_build: true })
-  const job = workflow.jobs['orcad-auto-convert-docker']
-  expect(job.if).toContain(spec)
-  expect(job.steps.find((step) => step.name === 'Convert a relay-era Docker host').run).toContain(
-    spec
-  )
+  expectManagedSshLane(spec)
 })
 
 it.each([
@@ -254,12 +260,7 @@ it.each([
 ])('routes %s to the template-building explorer watch recovery lane', (file) => {
   const spec = 'tests/e2e/ssh-orcad-explorer-watch-recovery.spec.ts'
   expect(selectPrE2eSpecs([file])).toContain(spec)
-  expect(classify([spec])).toEqual({ e2e_run_changed: false, e2e_needs_build: true })
-  const job = workflow.jobs['orcad-auto-convert-docker']
-  expect(job.if).toContain(spec)
-  expect(job.steps.find((step) => step.name === 'Convert a relay-era Docker host').run).toContain(
-    spec
-  )
+  expectManagedSshLane(spec)
 })
 
 it.each([
@@ -272,22 +273,12 @@ it.each([
 ])('routes %s to the template-building selected-host explorer lane', (file) => {
   const spec = 'tests/e2e/ssh-orcad-explorer-selected-host.spec.ts'
   expect(selectPrE2eSpecs([file])).toContain(spec)
-  expect(classify([spec])).toEqual({ e2e_run_changed: false, e2e_needs_build: true })
-  const job = workflow.jobs['orcad-auto-convert-docker']
-  expect(job.if).toContain(spec)
-  expect(job.steps.find((step) => step.name === 'Convert a relay-era Docker host').run).toContain(
-    spec
-  )
+  expectManagedSshLane(spec)
 })
 
 it('runs managed terminal root ownership in the Docker conversion lane', () => {
   const spec = 'tests/e2e/ssh-orcad-terminal-root-owner.spec.ts'
-  expect(classify([spec])).toEqual({ e2e_run_changed: false, e2e_needs_build: true })
-  const lane = workflow.jobs['orcad-auto-convert-docker']
-  expect(lane.if).toContain(spec)
-  expect(
-    lane.steps.some((step) => step.run?.includes(spec) && step.env?.ORCA_E2E_SSH_DOCKER === '1')
-  ).toBe(true)
+  expectManagedSshLane(spec)
   for (const source of [
     'src/renderer/src/components/terminal-pane/terminal-worktree-path-link.ts',
     'src/renderer/src/components/terminal-pane/terminal-file-open-routing.ts',

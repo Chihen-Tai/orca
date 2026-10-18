@@ -8,7 +8,6 @@ import { describeDropWorkspaceIfInactive } from './terminal-drop-workspace-label
 import { pasteResolvedDropPaths, type NativeDropFlowArgs } from './terminal-drop-paste'
 import { uploadRuntimeDropPaths } from './terminal-runtime-drop-upload'
 import { resolveTerminalDropTargetShell } from './terminal-drop-shell'
-import { getTerminalPasteSshRemotePlatform } from './terminal-paste-ssh-platform'
 import type { captureTerminalDropTransportOwner } from './terminal-drop-transport-owner'
 import { toLocalWslDropPath } from './terminal-drop-local-wsl'
 
@@ -38,7 +37,7 @@ export async function deliverNativeTerminalFileDrop(
       manager,
       paneTransports,
       pane,
-        tabId,
+      tabId,
       worktreeId,
       worktreePath,
       ...owner,
@@ -60,8 +59,7 @@ export async function deliverNativeTerminalFileDrop(
   const targetShell = resolveTerminalDropTargetShell({
     activeRuntimeEnvironmentId: null,
     worktreePath,
-    connectionId,
-    remotePlatform: getTerminalPasteSshRemotePlatform(connectionId)
+    connectionId
   })
   const isRemote = connectionId !== null
 

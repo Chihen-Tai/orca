@@ -3,7 +3,8 @@ import type {
   PairingGetEndpointsParams,
   PairingProvisionRelayParams
 } from '../../../shared/mobile-relay-credential-contract'
-import { fingerprintAuthenticatedPairingCredential } from '../rpc/orchestration-mutation-executor'
+import { callerScopeOf, devicePrincipalOf } from '../device-principal'
+import { registerSocketDeviceKey } from './runtime-rpc-device-key-registration'
 import type { AuthenticatedMobileSocket } from '../rpc/mobile-socket-wiring'
 import type { RpcRequest, RpcResponse } from '../rpc/core'
 import type { WebSocketTransport } from '../rpc/ws-transport'
@@ -11,7 +12,6 @@ import type { DeviceScope } from '../device-registry'
 import { RuntimeRpcMobileDevices } from './runtime-rpc-mobile-devices'
 import { classifyRuntimeLongPoll } from './runtime-rpc-long-poll'
 import type { RpcBinarySender } from '../rpc/rpc-binary-sender'
-import type { RpcCallerScope } from '../rpc/rpc-caller-scope'
 import { limitRuntimeRpcReplySize } from './runtime-rpc-reply-size-limit'
 import { MOBILE_RPC_METHOD_ALLOWLIST } from './runtime-rpc-mobile-method-allowlist'
 import { MOBILE_RPC_METHOD_ROUTES } from './runtime-rpc-mobile-method-routing'
@@ -34,24 +34,29 @@ function injectDeviceScope(response: string, scope: DeviceScope): string {
 export class RuntimeRpcWebSocketDispatch extends RuntimeRpcMobileDevices {
   // Why: a phone names a server's workspace with `executionHost`; only configured servers are reached,
   // and a target the desktop cannot reach is an error, never a silent local run.
+  // Returns the request to dispatch locally, or null once it was relayed or answered.
   private relayMobileRequest(
     request: RpcRequest,
     rawMessage: string,
     reply: (response: string) => void,
     sendBinary: RpcBinarySender,
     socket: AuthenticatedMobileSocket | undefined
-  ): boolean {
+  ): RpcRequest | null {
     const { executionHost } = request
     if (executionHost === undefined) {
-      return false
+      return request
     }
     const target = parseExecutionHostId(typeof executionHost === 'string' ? executionHost : null)
     if (target?.kind === 'local' || target?.kind === 'ssh') {
-      return false
+      return request
     }
     // Why: the phone tags every call on a workspace screen; only this Mac's routing table decides.
     if (target && MOBILE_RPC_METHOD_ROUTES.get(request.method) !== 'execution-host') {
-      return false
+      return request
+    }
+    const local = target && this.mobileDesktopRelay?.localRequestFor(request, target.environmentId)
+    if (local) {
+      return local
     }
     if (!target) {
       reply(
@@ -82,7 +87,7 @@ export class RuntimeRpcWebSocketDispatch extends RuntimeRpcMobileDevices {
         {
           connectionId: socket.connectionId,
           deviceId: socket.device.deviceId,
-          deviceToken: socket.device.deviceToken,
+          deviceToken: socket.device.clientId,
           clientCapabilities: () => socket.clientCapabilities,
           reply,
           sendBinary: (bytes) => {
@@ -94,7 +99,7 @@ export class RuntimeRpcWebSocketDispatch extends RuntimeRpcMobileDevices {
         rawMessage
       )
     }
-    return true
+    return null
   }
 
   // Why: WebSocket dispatch is streaming (multiple responses) and auths via per-device tokens, not the shared token.
@@ -128,26 +133,32 @@ export class RuntimeRpcWebSocketDispatch extends RuntimeRpcMobileDevices {
       typeof (request as Record<string, unknown>).deviceToken === 'string'
         ? ((request as Record<string, unknown>).deviceToken as string)
         : null
-    if (authenticatedDeviceToken && requestToken && requestToken !== authenticatedDeviceToken) {
+    // Why: a keyed socket proved no token, so any request token is a mismatch.
+    const boundToken = authenticatedSocket
+      ? (authenticatedSocket.device.deviceToken ?? null)
+      : authenticatedDeviceToken
+    if (requestToken && (authenticatedSocket || boundToken) && requestToken !== boundToken) {
       reply(JSON.stringify(this.buildError(request.id, 'unauthorized', 'Device token mismatch')))
       return
     }
     // Why: E2EE already authenticated the channel; authorize by that bound identity, not a repeated request field.
-    const token = authenticatedDeviceToken ?? requestToken
-    if (!token) {
+    const token = boundToken ?? requestToken
+    if (!token && !authenticatedSocket) {
       reply(JSON.stringify(this.buildError(request.id, 'unauthorized', 'Missing device token')))
       return
     }
-    const device = this.deviceRegistry?.validateToken(token)
+    // Why: an authenticated socket stays bound to the device and credential revision it proved;
+    // a revoke or credential change refuses its next request even before the socket closes.
+    const device = authenticatedSocket
+      ? this.deviceRegistry?.resolveAuthenticatedPrincipal(authenticatedSocket.device)
+      : this.deviceRegistry?.validateToken(token ?? '')
     if (!device) {
       reply(JSON.stringify(this.buildError(request.id, 'unauthorized', 'Invalid device token')))
       return
     }
+    const principal = devicePrincipalOf(device)
     // Why: the dispatcher enforces this scope's permissions; it never trusts a request field.
-    const callerScope: RpcCallerScope =
-      device.scope === 'mobile'
-        ? { kind: 'mobile', delegated: device.parentDeviceId !== undefined }
-        : { kind: 'runtime-paired', grants: device.grants ?? [] }
+    const callerScope = callerScopeOf(device)
 
     // Why: relayed calls skip this dispatcher's scope check, so only allowlisted methods may relay.
     if (device.scope === 'mobile' && MOBILE_RPC_METHOD_ALLOWLIST.has(request.method)) {
@@ -158,14 +169,22 @@ export class RuntimeRpcWebSocketDispatch extends RuntimeRpcMobileDevices {
           rawMessage
         )
       }
-      if (this.relayMobileRequest(request, rawMessage, reply, sendBinary, authenticatedSocket)) {
+      const localRequest = this.relayMobileRequest(
+        request,
+        rawMessage,
+        reply,
+        sendBinary,
+        authenticatedSocket
+      )
+      if (!localRequest) {
         return
       }
+      request = localRequest
     }
 
-    // Why: bind deviceToken to this socket so ws.on('close') knows which mobile client disconnected.
+    // Why: bind the device to this socket so ws.on('close') knows which client disconnected.
     if (wsTransport && ws) {
-      wsTransport.setClientId(ws, token)
+      wsTransport.setClientId(ws, principal.deviceId)
     }
 
     const longPoll = classifyRuntimeLongPoll(request)
@@ -214,10 +233,11 @@ export class RuntimeRpcWebSocketDispatch extends RuntimeRpcMobileDevices {
     try {
       await this.dispatcher.dispatchStreaming(request, replyForRequest, {
         // Why: the validated credential preserves existing federation ownership without trusting request fields.
-        authenticatedCallerFingerprint: fingerprintAuthenticatedPairingCredential(token),
+        authenticatedCallerFingerprint: principal.callerFingerprint,
         connectionId,
-        clientId: token,
+        clientId: principal.clientId,
         pairedDeviceId: device.deviceId,
+        pairedDeviceParentId: device.parentDeviceId,
         // Why: gates the mobile-only payload diet so full-screen web/desktop clients aren't truncated.
         clientKind: device.scope,
         callerScope,
@@ -229,6 +249,13 @@ export class RuntimeRpcWebSocketDispatch extends RuntimeRpcMobileDevices {
               }
             : undefined,
         pairing: pairingContext,
+        deviceSelf:
+          authenticatedSocket && this.deviceRegistry
+            ? {
+                registerDeviceKey: (params) =>
+                  registerSocketDeviceKey(this.deviceRegistry!, authenticatedSocket, params)
+              }
+            : undefined,
         mobileRelayHosts: this.mobileRelayHostCatalog ?? undefined,
         delegatedMobileDevices:
           device.scope === 'runtime'

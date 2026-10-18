@@ -28,7 +28,7 @@ import {
   removeRuntimeOwnedSshTarget
 } from '../ephemeral-vm-runtime-ssh'
 import { getRuntimeRecipeContext } from './ephemeral-vm-recipe-context'
-import { invalidateRuntimeEnvironmentTransport } from './runtime-environments'
+import { invalidateRuntimeEnvironmentTransport } from './runtime-environments/runtime-environments'
 import { attachEphemeralVmRuntimeToWorkspace } from '../ephemeral-vm-runtime-attachment'
 
 export type EphemeralVmCleanupCommandResult = {
@@ -234,7 +234,7 @@ export function registerEphemeralVmRuntimeHandlers(store: Store): void {
           return updateEphemeralVmRuntimeStatus(userDataPath, result.runtime.id, {
             connectionMode: 'ssh',
             sshTargetId: ssh.targetId,
-            ...(ssh.environmentId ? { runtimeEnvironmentId: ssh.environmentId } : {})
+            runtimeEnvironmentId: ssh.environmentId
           })
         } catch (error) {
           updateEphemeralVmRuntimeStatus(userDataPath, result.runtime.id, {

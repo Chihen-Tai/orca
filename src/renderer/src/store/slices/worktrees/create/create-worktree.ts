@@ -1,4 +1,4 @@
-import { runtimeTargetForExecutionHostId } from '@/runtime/runtime-client-target'
+import { runtimeRpcTargetForAuthorityKey } from '@/runtime/runtime-client-target'
 import { repoHostId } from '../listing/worktree-host-ownership'
 import {
   isUnresolvedOwnerHostId,
@@ -9,6 +9,10 @@ import type { WorktreeSlice } from '../../worktree-helpers'
 import type { WorktreeSliceGet, WorktreeSliceSet } from '../listing/worktree-slice-types'
 import type { CreateWorktreeResult } from '../../../../../../shared/worktree/create-types'
 import {
+  pickClientWorktreeCreateSettings,
+  type ClientWorktreeCreateSettings
+} from './client-worktree-create-settings'
+import {
   CLIENT_WORKTREE_CREATE_MAX_ATTEMPTS,
   getClientWorktreeCreateCandidate,
   getGeneratedWorktreeCreateRetryCandidate,
@@ -16,15 +20,17 @@ import {
 } from '../../../../../../shared/new-workspace/worktree-create-retry-policy'
 import {
   assertRuntimeEnvironmentCapability,
-  callRuntimeRpc,
-  type RuntimeClientTarget
+  callRuntimeRpc
 } from '../../../../runtime/runtime-rpc-client'
+import type { RuntimeClientTarget } from '../../../../../../shared/runtime-client-target'
 import { runtimeTargetForRepoOwner } from '@/lib/repo-runtime-owner'
 import { WORKTREE_LINKED_WORK_ITEM_CONTEXT_RUNTIME_CAPABILITY } from '../../../../../../shared/protocol-version'
 import { showLocalBaseRefUpdateSuggestionToast } from '@/components/sidebar/local-base-ref-suggestion-toast'
 import { requestWorktreeBaseFallbackNotice } from '@/components/worktree-base-fallback-notice'
 import { showLocalBaseRefRefreshToast } from './local-base-ref-refresh-toast'
 import { applyCreatedWorktree } from './created-worktree-state-merge'
+import { requestCreationFromHost } from '@/lib/sidebar-shadow/host-creation-requests'
+import { ORCA_SIDEBAR_INPUTS_IS_MAIN } from '../../../../../../shared/sidebar-inputs-switch'
 import { adoptRuntimeProvisionedRoot } from './runtime-provisioned-root-adoption'
 import { isRuntimeLineageParentMissingError } from '../listing/runtime-worktree-rpc-errors'
 import {
@@ -50,7 +56,8 @@ type CreateAttemptOutcome = {
 async function runCreateAttempt(
   request: WorktreeCreateRequest,
   attempt: WorktreeCreateAttempt,
-  target: RuntimeTarget
+  target: RuntimeTarget,
+  clientCreateSettings: ClientWorktreeCreateSettings = {}
 ): Promise<CreateAttemptOutcome> {
   const provisionedRoot = request.options?.provisionedRoot
   const create = async (
@@ -70,13 +77,24 @@ async function runCreateAttempt(
           })
       : target.kind === 'local'
         ? // Why local can still reject on the parent: paired web clients route this API to their host.
-          await window.api.worktrees.create(
-            buildLocalWorktreeCreateArgs(request, { ...attempt, parentWorkspace })
-          )
+          // Switch point: only a build where main lists creations tracks the requests it serves.
+          ORCA_SIDEBAR_INPUTS_IS_MAIN
+          ? await requestCreationFromHost(request, () =>
+              window.api.worktrees.create(
+                buildLocalWorktreeCreateArgs(request, { ...attempt, parentWorkspace })
+              )
+            )
+          : await window.api.worktrees.create(
+              buildLocalWorktreeCreateArgs(request, { ...attempt, parentWorkspace })
+            )
         : await callRuntimeRpc<CreateWorktreeResult>(
             target,
             'worktree.create',
-            buildRuntimeWorktreeCreateParams(request, { ...attempt, parentWorkspace }),
+            {
+              ...buildRuntimeWorktreeCreateParams(request, { ...attempt, parentWorkspace }),
+              // Why: the host's own store defaults would otherwise override the user's choices.
+              ...clientCreateSettings
+            },
             { timeoutMs: 10 * 60_000 }
           )
   try {
@@ -169,8 +187,26 @@ export function createCreateWorktree(
       options
     }
     try {
+      // Why: manual sort is user-authored order; stamp new workspaces at the top rather than relying on sortOrder fallback.
+      const manualOrder = get().sortBy === 'manual' ? Date.now() : undefined
+      if (isUnresolvedOwnerHostId(options?.executionHostId)) {
+        // Why: the direct-SSH fallback below would otherwise create it on this machine.
+        throw new Error('The workspace host is unresolved. Choose a host and retry.')
+      }
+      // Direct SSH still uses desktop IPC; paired runtimes use their captured environment.
+      const target = options?.executionHostId
+        ? (runtimeRpcTargetForAuthorityKey(options.executionHostId) ?? { kind: 'local' as const })
+        : runtimeTargetForRepoOwner(get(), repoId)
+      if (!target) {
+        throw new Error('The project host is unresolved. Choose a host and retry.')
+      }
+      const creationHostId = adoptFromEndpoint(target, {
+        kind: 'createdWorktree',
+        requestedHostId: options?.executionHostId,
+        resolveOwnHostId: () => repoHostId(get(), repoId)
+      })
       // Why outside the retry loop: a branch-name conflict retry must not re-warn about the same dropped pick.
-      const parent = resolveWorktreeCreateParent(get(), repoId, options?.parentWorktreeId)
+      const parent = resolveWorktreeCreateParent(get(), options?.parentWorktreeId, creationHostId)
       let warnedParentDropped = false
       const warnParentDroppedOnce = (): void => {
         if (warnedParentDropped) {
@@ -182,24 +218,6 @@ export function createCreateWorktree(
       if (parent.staleBeforeCreate) {
         warnParentDroppedOnce()
       }
-      // Why: manual sort is user-authored order; stamp new workspaces at the top rather than relying on sortOrder fallback.
-      const manualOrder = get().sortBy === 'manual' ? Date.now() : undefined
-      if (isUnresolvedOwnerHostId(options?.executionHostId)) {
-        // Why: the direct-SSH fallback below would otherwise create it on this machine.
-        throw new Error('The workspace host is unresolved. Choose a host and retry.')
-      }
-      // Direct SSH still uses desktop IPC; paired runtimes use their captured environment.
-      const target = options?.executionHostId
-        ? (runtimeTargetForExecutionHostId(options.executionHostId) ?? { kind: 'local' as const })
-        : runtimeTargetForRepoOwner(get(), repoId)
-      if (!target) {
-        throw new Error('The project host is unresolved. Choose a host and retry.')
-      }
-      const creationHostId = adoptFromEndpoint(target, {
-        kind: 'createdWorktree',
-        requestedHostId: options?.executionHostId,
-        resolveOwnHostId: () => repoHostId(get(), repoId)
-      })
       if (
         target.kind === 'environment' &&
         (options?.linkedWorkItem?.provider === 'jira' ||
@@ -233,7 +251,8 @@ export function createCreateWorktree(
               parentWorkspace: parent.parentWorkspace,
               manualOrder
             },
-            target
+            target,
+            pickClientWorktreeCreateSettings(get().settings)
           )
           if (lostRequestedParent(outcome, parent, target)) {
             warnParentDroppedOnce()

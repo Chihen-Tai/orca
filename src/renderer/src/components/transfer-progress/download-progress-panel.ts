@@ -2,7 +2,7 @@ import { createBrowserUuid } from '@/lib/browser-uuid'
 import type {
   RuntimeFileDownloadResult,
   RuntimeFileDownloadTransfer
-} from '@/runtime/runtime-file-client'
+} from '@/runtime/runtime-file-client-types'
 import { createDownloadProgressTracker, type DownloadProgress } from './download-progress-tracker'
 import {
   openTransferProgressPanel,

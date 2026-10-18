@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { downloadRuntimeFile } from './runtime-file-client'
+import { downloadRuntimeFile } from './runtime-file-read-client'
 import {
   fsSaveDownloadedFile,
   fsStartDownloadedFile,

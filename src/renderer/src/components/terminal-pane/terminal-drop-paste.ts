@@ -1,5 +1,5 @@
 import type { PaneManager } from '@/lib/pane-manager/pane-manager'
-import type { PtyTransport } from './pty-transport'
+import type { PtyTransport } from './pty-transport-types'
 import type { captureTerminalDropTarget } from './terminal-drop-target'
 import { getCurrentTerminalDropTransport } from './terminal-drop-target'
 import { writeTerminalDropPathsToCapturedTarget } from './terminal-drop-path-writer'

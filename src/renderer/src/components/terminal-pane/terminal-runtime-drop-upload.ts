@@ -1,6 +1,6 @@
 import { toast } from 'sonner'
 import { extractIpcErrorMessage } from '@/lib/ipc-error'
-import { importExternalPathsToRuntime } from '@/runtime/runtime-file-client'
+import { importExternalPathsToRuntime } from '@/runtime/runtime-file-import-client'
 import { createUploadProgressPanel } from '@/components/transfer-progress/upload-progress-panel'
 import type { NativeDropFlowArgs } from './terminal-drop-paste'
 import { pasteResolvedDropPaths } from './terminal-drop-paste'
