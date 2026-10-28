@@ -52,8 +52,8 @@ describe('host browse handlers', () => {
 
     expect(listing.resolvedPath).toBe(outside)
     expect(listing.entries.map((entry) => entry.name).sort()).toEqual(['nested', 'notes.txt'])
-    expect(isPathAllowed(outside, store)).toBe(false)
-    expect(isPathAllowed(join(outside, 'nested', 'x'), store)).toBe(false)
+    await expect(isPathAllowed(outside, store)).resolves.toBe(false)
+    await expect(isPathAllowed(join(outside, 'nested', 'x'), store)).resolves.toBe(false)
     await expect(resolveAuthorizedPath(join(outside, 'nested'), store)).rejects.toThrow(
       /Access denied/
     )
@@ -64,9 +64,9 @@ describe('host browse handlers', () => {
     const resolution = await resolveHostBrowseEntry(file)
 
     expect(resolution).toEqual({ kind: 'file', realPath: file, workspaceRelativePath: null })
-    expect(isPathAllowed(file, store)).toBe(false)
-    expect(isPathAllowed(join(root, 'outside'), store)).toBe(false)
-    expect(isPathAllowed(join(root, 'outside', 'nested'), store)).toBe(false)
+    await expect(isPathAllowed(file, store)).resolves.toBe(false)
+    await expect(isPathAllowed(join(root, 'outside'), store)).resolves.toBe(false)
+    await expect(isPathAllowed(join(root, 'outside', 'nested'), store)).resolves.toBe(false)
   })
 
   it('classifies a symlink to a directory as a directory and grants nothing', async () => {
@@ -77,8 +77,8 @@ describe('host browse handlers', () => {
     const resolution = await resolveHostBrowseEntry(link)
 
     expect(resolution).toEqual({ kind: 'directory', realPath: target, workspaceRelativePath: null })
-    expect(isPathAllowed(join(target, 'anything'), store)).toBe(false)
-    expect(isPathAllowed(join(link, 'anything'), store)).toBe(false)
+    await expect(isPathAllowed(join(target, 'anything'), store)).resolves.toBe(false)
+    await expect(isPathAllowed(join(link, 'anything'), store)).resolves.toBe(false)
   })
 
   it('reports the canonical path of a symlinked file for worktree ownership checks', async () => {
@@ -121,6 +121,6 @@ describe('host browse handlers', () => {
       workspaceRelativePath: 'src/a.ts'
     })
     // Why: workspace files are reached through allowed roots; no external grant is added.
-    expect(isPathAllowed(outsideLink, store)).toBe(false)
+    await expect(isPathAllowed(outsideLink, store)).resolves.toBe(false)
   })
 })
