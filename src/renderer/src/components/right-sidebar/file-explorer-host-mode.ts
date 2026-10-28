@@ -62,11 +62,15 @@ export function resolveHostEntry(
   if (entry.isDirectory) {
     return Promise.resolve({ kind: 'directory', realPath: entryPath, workspaceRelativePath: null })
   }
-  return requireDesktopFs().resolveHostBrowseEntry({
-    targetPath: entryPath,
-    workspaceRoot,
-    ...(source.kind === 'ssh' ? { connectionId: source.connectionId } : {})
-  })
+  if (source.kind === 'ssh') {
+    // ponytail: SSH has no realpath/stat RPC since the relay removal (#31922), so SSH files stay unopenable until one exists.
+    return Promise.resolve({
+      kind: 'unsupported',
+      realPath: entryPath,
+      workspaceRelativePath: null
+    })
+  }
+  return requireDesktopFs().resolveHostBrowseEntry({ targetPath: entryPath, workspaceRoot })
 }
 
 export type HostFileOpenPlan =

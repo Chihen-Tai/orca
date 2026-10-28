@@ -94,24 +94,28 @@ describe('resolveHostEntry', () => {
     expect(resolveHostBrowseEntry).not.toHaveBeenCalled()
   })
 
-  it('classifies local and SSH non-directories in the main process', async () => {
+  it('classifies local non-directories in the main process', async () => {
     const resolved = { kind: 'directory', realPath: '/mnt/data', workspaceRelativePath: null }
     resolveHostBrowseEntry.mockResolvedValue(resolved)
 
     await expect(
       resolveHostEntry({ kind: 'local' }, '/home/allen/link', link, root)
     ).resolves.toEqual(resolved)
-    await resolveHostEntry({ kind: 'ssh', connectionId: 'ssh-1' }, '/home/allen/x', file, root)
-
-    expect(resolveHostBrowseEntry).toHaveBeenNthCalledWith(1, {
+    expect(resolveHostBrowseEntry).toHaveBeenCalledWith({
       targetPath: '/home/allen/link',
       workspaceRoot: root
     })
-    expect(resolveHostBrowseEntry).toHaveBeenNthCalledWith(2, {
-      targetPath: '/home/allen/x',
-      workspaceRoot: root,
-      connectionId: 'ssh-1'
+  })
+
+  it('refuses SSH files without asking main, which cannot classify them', async () => {
+    await expect(
+      resolveHostEntry({ kind: 'ssh', connectionId: 'ssh-1' }, '/home/allen/x', file, root)
+    ).resolves.toEqual({
+      kind: 'unsupported',
+      realPath: '/home/allen/x',
+      workspaceRelativePath: null
     })
+    expect(resolveHostBrowseEntry).not.toHaveBeenCalled()
   })
 })
 
