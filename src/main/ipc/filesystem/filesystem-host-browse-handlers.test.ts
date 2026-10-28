@@ -4,14 +4,13 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { HostDirectoryListing } from '../../../shared/filesystem-entry-types'
 import type { Store } from '../../persistence'
-import { isPathAllowed, resolveAuthorizedPath } from '../filesystem-auth'
+import { isPathAllowed, resolveAuthorizedPath } from './filesystem-auth'
 import {
   registerFilesystemHostBrowseHandlers,
   resolveHostBrowseEntry
 } from './filesystem-host-browse-handlers'
 
-const { getSshFilesystemProviderMock, handlers } = vi.hoisted(() => ({
-  getSshFilesystemProviderMock: vi.fn(),
+const { handlers } = vi.hoisted(() => ({
   handlers: new Map<string, (event: unknown, args: unknown) => unknown>()
 }))
 
@@ -22,10 +21,6 @@ vi.mock('electron', () => ({
   }
 }))
 
-vi.mock('../../providers/ssh-filesystem-dispatch', () => ({
-  getSshFilesystemProvider: getSshFilesystemProviderMock
-}))
-
 // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: allowed-root lookups read only these four accessors.
 const store = {
   getRepos: () => [],
@@ -34,12 +29,6 @@ const store = {
   getSettings: () => ({})
 } as unknown as Store
 
-function sshProvider(stat = vi.fn(), realpath = (path: string): string => path) {
-  const provider = { realpath: vi.fn(async (path: string) => realpath(path)), stat }
-  getSshFilesystemProviderMock.mockReturnValue(provider)
-  return provider
-}
-
 describe('host browse handlers', () => {
   let root: string
 
@@ -47,7 +36,6 @@ describe('host browse handlers', () => {
     root = await realpath(await mkdtemp(join(tmpdir(), 'orca-host-browse-')))
     await mkdir(join(root, 'outside', 'nested'), { recursive: true })
     await writeFile(join(root, 'outside', 'notes.txt'), 'hi')
-    getSshFilesystemProviderMock.mockReset()
   })
 
   afterEach(async () => {
@@ -105,9 +93,7 @@ describe('host browse handlers', () => {
     })
   })
 
-  it('rejects relative and null-byte paths, locally and before SSH paths reach the relay', async () => {
-    const provider = sshProvider()
-
+  it('rejects relative and null-byte paths, locally and over SSH', async () => {
     await expect(resolveHostBrowseEntry('outside/notes.txt'), 'relative').rejects.toThrow(
       /absolute/
     )
@@ -116,46 +102,6 @@ describe('host browse handlers', () => {
       resolveHostBrowseEntry('/home/allen\0x', 'ssh-1'),
       'null-byte SSH path'
     ).rejects.toThrow(/null bytes/)
-    expect(provider.realpath, 'null-byte SSH path never reaches the relay').not.toHaveBeenCalled()
-  })
-
-  it('classifies SSH entries through the provider realpath without local grants', async () => {
-    const provider = sshProvider(
-      vi.fn().mockResolvedValue({ type: 'directory', size: 0, mtime: 0 }),
-      (path) => (path === '/home/allen/link' ? '/home/allen/codes/repo/src' : path)
-    )
-
-    await expect(
-      resolveHostBrowseEntry('/home/allen/link', 'ssh-1', '/home/allen/codes/repo')
-    ).resolves.toEqual({
-      kind: 'directory',
-      realPath: '/home/allen/codes/repo/src',
-      workspaceRelativePath: 'src'
-    })
-    expect(getSshFilesystemProviderMock).toHaveBeenCalledWith('ssh-1')
-    expect(provider.stat).toHaveBeenCalledWith('/home/allen/codes/repo/src')
-    expect(provider.realpath).toHaveBeenCalledWith('/home/allen/codes/repo')
-    expect(isPathAllowed('/home/allen/link', store)).toBe(false)
-  })
-
-  it('maps SSH file stats to file and anything else to unsupported', async () => {
-    sshProvider(
-      vi
-        .fn()
-        .mockResolvedValueOnce({ type: 'file', size: 1, mtime: 0 })
-        .mockResolvedValueOnce({ type: 'symlink', size: 1, mtime: 0 })
-    )
-
-    await expect(resolveHostBrowseEntry('/etc/hosts', 'ssh-1')).resolves.toEqual({
-      kind: 'file',
-      realPath: '/etc/hosts',
-      workspaceRelativePath: null
-    })
-    await expect(resolveHostBrowseEntry('/dev/weird', 'ssh-1')).resolves.toEqual({
-      kind: 'unsupported',
-      realPath: '/dev/weird',
-      workspaceRelativePath: null
-    })
   })
 
   it('resolves workspace ownership against the canonical workspace root', async () => {
@@ -176,22 +122,5 @@ describe('host browse handlers', () => {
     })
     // Why: workspace files are reached through allowed roots; no external grant is added.
     expect(isPathAllowed(outsideLink, store)).toBe(false)
-  })
-
-  it('treats an SSH file as outside the workspace when the workspace realpath fails', async () => {
-    sshProvider(vi.fn().mockResolvedValue({ type: 'file', size: 1, mtime: 0 }), (path) => {
-      if (path === '/home/allen/codes') {
-        throw new Error('connection lost')
-      }
-      return path
-    })
-
-    await expect(
-      resolveHostBrowseEntry('/home/allen/codes/src/a.ts', 'ssh-1', '/home/allen/codes')
-    ).resolves.toEqual({
-      kind: 'file',
-      realPath: '/home/allen/codes/src/a.ts',
-      workspaceRelativePath: null
-    })
   })
 })

@@ -7,7 +7,6 @@ import type {
   HostDirectoryListing
 } from '../../../shared/filesystem-entry-types'
 import { browseServerDirectory } from '../../runtime/runtime-server-environment-commands'
-import { getSshFilesystemProvider } from '../../providers/ssh-filesystem-dispatch'
 
 async function canonicalRelativePath(
   realPath: string,
@@ -33,21 +32,8 @@ export async function resolveHostBrowseEntry(
     throw new Error('Path cannot contain null bytes')
   }
   if (connectionId) {
-    // Why: the relay has no FS allowlist (relay/context.ts), so SSH only classifies.
-    const provider = getSshFilesystemProvider(connectionId)
-    if (!provider) {
-      throw new Error('Remote connection dropped. Click Reconnect on the SSH target before retrying.')
-    }
-    const realPath = await provider.realpath(targetPath)
-    const target = await provider.stat(realPath)
-    return {
-      kind:
-        target.type === 'directory' ? 'directory' : target.type === 'file' ? 'file' : 'unsupported',
-      realPath,
-      workspaceRelativePath: await canonicalRelativePath(realPath, workspaceRoot, (path) =>
-        provider.realpath(path)
-      )
-    }
+    // ponytail: no SSH filesystem provider exists since the relay removal (#31922); add an SSH realpath/stat RPC to classify remote entries.
+    throw new Error('Remote connection dropped. Click Reconnect on the SSH target before retrying.')
   }
   if (!isAbsolute(targetPath)) {
     throw new Error('Host browse path must be absolute')

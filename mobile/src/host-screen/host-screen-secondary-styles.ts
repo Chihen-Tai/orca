@@ -1,7 +1,8 @@
 import { StyleSheet } from 'react-native'
 import { colors, spacing, typography } from '../theme/mobile-theme'
+import { themedStyleSheet } from '../theme/themed-styles'
 
-export const hostScreenSecondaryStyles = StyleSheet.create({
+export const hostScreenSecondaryStyles = themedStyleSheet(() => ({
   errorText: {
     color: colors.statusRed,
     fontSize: typography.bodySize
@@ -34,6 +35,9 @@ export const hostScreenSecondaryStyles = StyleSheet.create({
     color: colors.textMuted,
     marginLeft: spacing.xs
   },
+  sectionPendingSpinner: {
+    marginLeft: spacing.sm
+  },
   separator: {
     height: 1,
     backgroundColor: colors.borderSubtle,
@@ -59,6 +63,12 @@ export const hostScreenSecondaryStyles = StyleSheet.create({
     fontSize: 11,
     color: colors.textMuted,
     marginTop: 2
+  },
+  optionPending: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    marginTop: spacing.xs
   },
   clearFiltersText: {
     fontSize: 13,
@@ -188,4 +198,4 @@ export const hostScreenSecondaryStyles = StyleSheet.create({
     fontWeight: '600',
     color: '#fff'
   }
-})
+}))

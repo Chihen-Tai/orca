@@ -1,16 +1,11 @@
-/**
- * An `ssh -N -L` forward a previous Orca left behind — after a crash, a force-quit, or a version
- * that did not stop its forwards on quit — keeps holding the fixed local port a managed tunnel
- * binds, so every later start fails with EADDRINUSE. Only a process whose argv is exactly the one
- * Orca would spawn for this same forward and host, and whose parent is gone, qualifies: a user's
- * own ssh and a live Orca's tunnel never match.
- */
+/** Recover fixed ports only from parentless processes with the exact same Orca forward/host argv; user SSH and live Orca tunnels are excluded. */
+import { parseWindowsCommandLine } from '@orca/process-host/windows-command-line'
 import { getFreshShellForegroundSnapshot } from '../../../shared/process-table-snapshot-reader'
 import { readWindowsProcessTableFresh } from '../../windows/windows-process-table'
 import {
   PROCESS_START_TIME_TOLERANCE_MS,
   readProcessStartTimeMs
-} from '../../runtime/agent-session-process-identity-probe'
+} from '../../runtime/agent-session/ownership/agent-session-process-identity-probe'
 
 export type SshForwardProcessRow = {
   pid: number
@@ -47,34 +42,67 @@ const KILL_WAIT_MS = 500
 // Init and the per-user subreapers an orphan is handed to.
 const REAPER_NAMES = new Set(['init', 'launchd', 'systemd'])
 
+function programName(executable: string): string {
+  return (executable.replaceAll('"', '').split(/[\\/]/).pop() ?? '').toLowerCase()
+}
+
 function splitExecutable(command: string): { name: string; rest: string } {
   const end = command.startsWith('"') ? command.indexOf('"', 1) + 1 : command.search(/\s|$/)
-  const first = command.slice(0, end).replaceAll('"', '')
-  return {
-    name: (first.split(/[\\/]/).pop() ?? '').toLowerCase(),
-    rest: command.slice(end).trim()
-  }
+  return { name: programName(command.slice(0, end)), rest: command.slice(end).trim() }
 }
 
 function executableName(command: string): string {
   return splitExecutable(command).name
 }
 
-// Why: versions before STA-10471 spawned the same argv with ExitOnForwardFailure=yes, and
-// versions before #24863's fix without LogLevel=INFO.
-function normalizeForwardArgv(text: string): string {
-  return text
-    .replace(' -o LogLevel=INFO', '')
-    .replaceAll(/ExitOnForwardFailure=(?:yes|no)/g, 'ExitOnForwardFailure=*')
+// Accept historical Orca argv: ExitOnForwardFailure=yes (pre STA-10471), missing LogLevel=INFO (pre #24863), or missing -S none.
+function normalizeForwardArgv(args: readonly string[]): string[] {
+  const normalized: string[] = []
+  let droppedLogLevel = false
+  let droppedControlPath = false
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index] ?? ''
+    if (!droppedLogLevel && arg === '-o' && args[index + 1] === 'LogLevel=INFO') {
+      droppedLogLevel = true
+      index += 1
+      continue
+    }
+    if (!droppedControlPath && arg === '-S' && args[index + 1] === 'none') {
+      droppedControlPath = true
+      index += 1
+      continue
+    }
+    normalized.push(arg.replace(/^ExitOnForwardFailure=(?:yes|no)$/, 'ExitOnForwardFailure=*'))
+  }
+  return normalized
 }
 
-/** The whole argv after the executable must be Orca's; any extra option is someone else's ssh. */
-function isOrcaForward(command: string, expectedArgs: readonly string[]): boolean {
+function sshArgv(command: string, platform: NodeJS.Platform): string[] | null {
+  if (platform === 'win32') {
+    // Why parse: Windows reports the quoted line, e.g. `-i "C:\Users\Jane Doe\.ssh\id_ed25519"`.
+    const [executable = '', ...args] = parseWindowsCommandLine(command)
+    const name = programName(executable)
+    return name === 'ssh' || name === 'ssh.exe' ? args : null
+  }
   const { name, rest } = splitExecutable(command)
-  return (
-    (name === 'ssh' || name === 'ssh.exe') &&
-    normalizeForwardArgv(rest) === normalizeForwardArgv(expectedArgs.join(' '))
-  )
+  return name === 'ssh' || name === 'ssh.exe' ? rest.split(' ') : null
+}
+
+/** Extra argv belongs to another SSH invocation; require the complete Orca forward. */
+function isOrcaForward(
+  command: string,
+  expectedArgs: readonly string[],
+  platform: NodeJS.Platform
+): boolean {
+  const argv = sshArgv(command, platform)
+  if (!argv) {
+    return false
+  }
+  // POSIX tables lose argv quoting; tokenize expected and observed commands alike to match spaced values.
+  const expectedTokens = platform === 'win32' ? expectedArgs : expectedArgs.join(' ').split(' ')
+  const actual = normalizeForwardArgv(argv)
+  const expected = normalizeForwardArgv(expectedTokens)
+  return actual.length === expected.length && actual.every((arg, index) => arg === expected[index])
 }
 
 function parentIsGone(
@@ -95,7 +123,6 @@ function parentIsGone(
   return row.ppid <= 1 || !parent || REAPER_NAMES.has(executableName(parent.command))
 }
 
-/** `expectedArgs` is the argv after the ssh executable that Orca spawns for this forward. */
 export function findOrphanedOrcaSshForward(
   rows: readonly SshForwardProcessRow[],
   expectedArgs: readonly string[],
@@ -104,7 +131,8 @@ export function findOrphanedOrcaSshForward(
   const byPid = new Map(rows.map((row) => [row.pid, row]))
   return (
     rows.find(
-      (row) => isOrcaForward(row.command, expectedArgs) && parentIsGone(row, byPid, platform)
+      (row) =>
+        isOrcaForward(row.command, expectedArgs, platform) && parentIsGone(row, byPid, platform)
     ) ?? null
   )
 }
@@ -158,8 +186,7 @@ export async function stopOrphanedOrcaSshForward(
     if (await waitUntilGone(orphan.pid, deps.kill, TERM_WAIT_MS)) {
       return true
     }
-    // Why: the pid may have exited and been reused while we polled; SIGKILL only on proof that it
-    // is still the same process, never when its start time cannot be read.
+    // Re-prove pid identity/start time before SIGKILL; unreadable or reused pids must never be signalled.
     const still = await find()
     const stillStartedAtMs = await deps.readStartTimeMs(orphan.pid)
     if (
