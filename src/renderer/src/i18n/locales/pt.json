@@ -14620,8 +14620,6 @@
                 "internalHostMismatch": "Arraste arquivos do mesmo host deste terminal.",
                 "skippedSymlinkSingular": "{{count}} link simbólico ignorado.",
                 "skippedSymlinkPlural": "{{count}} links simbólicos ignorados.",
-                "uploadingFileSingular": "Enviando {{count}} arquivo para o runtime…",
-                "uploadingFilePlural": "Enviando {{count}} arquivos para o runtime…",
                 "uploadingFileToRemoteSingular": "Enviando {{count}} arquivo para o host remoto…",
                 "uploadingFileToRemotePlural": "Enviando {{count}} arquivos para o host remoto…"
               }

@@ -3502,8 +3502,6 @@
                 "writeRejected": "Glisser-déposer de fichiers annulé : le terminal n'a pas pu accepter le chemin.",
                 "skippedSymlinkSingular": "Ignoré : {{count}} symlink.",
                 "skippedSymlinkPlural": "Ignorés : {{count}} symlinks.",
-                "uploadingFileSingular": "Envoi de {{count}} fichier vers le runtime…",
-                "uploadingFilePlural": "Envoi de {{count}} fichiers vers le runtime…",
                 "uploadingFileToRemoteSingular": "Envoi de {{count}} fichier vers l’hôte distant…",
                 "uploadingFileToRemotePlural": "Envoi de {{count}} fichiers vers l’hôte distant…"
               }

@@ -3,6 +3,7 @@ import { basename } from '@/lib/path'
 import { resolveWorktreeDisplayName } from '@/lib/worktree-default-display-name'
 import { useAppStore } from '@/store'
 import { findWorktreeById } from '@/store/slices/worktree-helpers'
+import { selectWorktreesByRepo } from '@/store/workspace-record-selectors'
 
 /**
  * Names the workspace a drop went to, for a notice that surfaces while the
@@ -16,7 +17,7 @@ export function describeDropWorkspaceIfInactive(
   if (state.activeWorktreeId === worktreeId) {
     return undefined
   }
-  const worktree = findWorktreeById(state.worktreesByRepo, worktreeId)
+  const worktree = findWorktreeById(selectWorktreesByRepo(state), worktreeId)
   // Why: folder workspaces are not in worktreesByRepo; their folder name is the label.
   const name = (worktree ? resolveWorktreeDisplayName(worktree) : '') || basename(worktreePath)
   if (!name) {

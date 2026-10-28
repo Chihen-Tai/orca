@@ -3606,8 +3606,6 @@
                 "writeRejected": "File drop cancelled: terminal could not accept the path.",
                 "skippedSymlinkSingular": "Skipped {{count}} symlink.",
                 "skippedSymlinkPlural": "Skipped {{count}} symlinks.",
-                "uploadingFileSingular": "Uploading {{count}} file to runtime…",
-                "uploadingFilePlural": "Uploading {{count}} files to runtime…",
                 "uploadingFileToRemoteSingular": "Uploading {{count}} file to remote…",
                 "uploadingFileToRemotePlural": "Uploading {{count}} files to remote…"
               },

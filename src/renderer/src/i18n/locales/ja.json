@@ -3289,8 +3289,6 @@
                 "writeRejected": "ファイルドロップをキャンセルしました: ターミナルがパスを受け付けられませんでした。",
                 "skippedSymlinkSingular": "{{count}} 個のシンボリックリンクをスキップしました。",
                 "skippedSymlinkPlural": "{{count}} 個のシンボリックリンクをスキップしました。",
-                "uploadingFileSingular": "{{count}} 個のファイルをランタイムにアップロードしています…",
-                "uploadingFilePlural": "{{count}} 個のファイルをランタイムにアップロードしています…",
                 "uploadingFileToRemoteSingular": "{{count}} 個のファイルをリモートホストにアップロードしています…",
                 "uploadingFileToRemotePlural": "{{count}} 個のファイルをリモートホストにアップロードしています…"
               }

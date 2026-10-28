@@ -3289,8 +3289,6 @@
                 "writeRejected": "文件拖放已取消：终端无法接受路径。",
                 "skippedSymlinkSingular": "已跳过 {{count}} 个符号链接。",
                 "skippedSymlinkPlural": "已跳过 {{count}} 个符号链接。",
-                "uploadingFileSingular": "正在将 {{count}} 个文件上传到运行时…",
-                "uploadingFilePlural": "正在将 {{count}} 个文件上传到运行时…",
                 "uploadingFileToRemoteSingular": "正在将 {{count}} 个文件上传到远程主机…",
                 "uploadingFileToRemotePlural": "正在将 {{count}} 个文件上传到远程主机…"
               }
