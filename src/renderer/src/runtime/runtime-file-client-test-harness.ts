@@ -62,6 +62,7 @@ export const fsOnUploadProgress: PreloadStub = vi.fn()
 export const fsCancelRuntimeUpload: PreloadStub = vi.fn()
 /** Called in the import loop's finally for every row it started. */
 export const fsReleaseRuntimeUpload: PreloadStub = vi.fn()
+export const fsGrantRuntimeFilePreview: PreloadStub = vi.fn()
 export const runtimeEnvironmentCall: RuntimeRpcStub = vi.fn()
 export const runtimeEnvironmentTransportCall: RuntimeRpcStub = vi.fn()
 export const runtimeEnvironmentSubscribe: RuntimeSubscribeStub = vi.fn()
@@ -105,6 +106,8 @@ export function installRuntimeFileClientEnvironment(): void {
     fsCancelRuntimeUpload.mockResolvedValue(undefined)
     fsReleaseRuntimeUpload.mockReset()
     fsReleaseRuntimeUpload.mockResolvedValue(undefined)
+    fsGrantRuntimeFilePreview.mockReset()
+    fsGrantRuntimeFilePreview.mockResolvedValue(null)
     runtimeEnvironmentCall.mockReset()
     runtimeEnvironmentTransportCall.mockReset()
     runtimeEnvironmentSubscribe.mockReset()
@@ -154,7 +157,8 @@ export function installRuntimeFileClientEnvironment(): void {
           uploadExternalFileToRuntime: fsUploadExternalFileToRuntime,
           onUploadProgress: fsOnUploadProgress,
           cancelRuntimeUpload: fsCancelRuntimeUpload,
-          releaseRuntimeUpload: fsReleaseRuntimeUpload
+          releaseRuntimeUpload: fsReleaseRuntimeUpload,
+          grantRuntimeFilePreview: fsGrantRuntimeFilePreview
         },
         runtime: { call: runtimeCall },
         runtimeEnvironments: {
