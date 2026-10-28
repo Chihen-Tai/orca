@@ -176,7 +176,11 @@ describe.each(['native', 'internal'])('%s runtime terminal catalog ownership', (
           },
           ['/client/file.txt'],
           '/owner/workspace/.orca/drops',
-          { assertCurrent: expect.any(Function), progress: expect.any(Object) }
+          {
+            assertCurrent: expect.any(Function),
+            nameExtensionlessImages: true,
+            progress: expect.any(Object)
+          }
         )
         expect(sendInput).toHaveBeenCalledExactlyOnceWith(
           '/owner/workspace/.orca/drops/file.txt ',

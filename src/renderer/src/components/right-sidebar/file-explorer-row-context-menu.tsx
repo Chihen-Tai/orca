@@ -34,7 +34,7 @@ import {
   revealInFileManager
 } from '@/lib/reveal-in-file-manager'
 import { isRevealOrEditorOpenBlocked } from '@/lib/local-path-open-guard'
-import { getRuntimeEnvironmentIdForWorktree } from '@/lib/worktree-runtime-owner'
+import { runtimeEnvironmentIdOrLocalUnlessTwin } from '@/lib/worktree-runtime-owner'
 import type { FileExplorerRowProps } from './FileExplorerRow'
 import {
   shouldShowCollapseFolderAction,
@@ -56,8 +56,7 @@ function stopRightButtonMenuSelection(event: React.PointerEvent): void {
   if (event.button !== 2) {
     return
   }
-  // Why: Radix opens context menus under the pointer; on some macOS/Electron
-  // paths the right-button release lands on the first item and selects it.
+  // Right-button release can hit Radix's first menu item on macOS/Electron; suppress accidental selection.
   event.preventDefault()
   event.stopPropagation()
 }
@@ -127,7 +126,7 @@ export function FileExplorerRowContextMenu({
   const revealOwner = useAppStore((s) =>
     getWorkspaceFileRevealOwner(s, s.activeWorktreeId, {
       connectionId,
-      runtimeEnvironmentId: getRuntimeEnvironmentIdForWorktree(s, s.activeWorktreeId)
+      runtimeEnvironmentId: runtimeEnvironmentIdOrLocalUnlessTwin(s, s.activeWorktreeId)
     })
   )
   const revealBlocked = isRevealOrEditorOpenBlocked(revealOwner)

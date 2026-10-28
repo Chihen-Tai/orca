@@ -7,13 +7,16 @@ import { translate } from '@/i18n/i18n'
 import { createUploadProgressPanel } from '@/components/transfer-progress/upload-progress-panel'
 import { createOsFileDropSequence, useOsFileDropOwner } from '@/hooks/use-os-file-drop-owner'
 import { getNativeFileDropRejectionMessage } from '@/lib/native-file-drop-rejection-message'
+import {
+  describeSharedDropFailureReason,
+  describeSharedDropSkipReason
+} from '@/lib/drop-skip-reason-copy'
 import type { FileExplorerOperationOwner } from './file-explorer-types'
 import {
   captureFileExplorerOperationGuard,
   type FileExplorerOperationGuard
 } from './file-explorer-operation-owner'
 
-/** Row attribute naming the folder an OS file dropped on that row imports into. */
 export const FILE_EXPLORER_DROP_DIR_ATTRIBUTE = 'data-file-explorer-drop-dir'
 
 type UseFileExplorerImportParams = {
@@ -41,10 +44,6 @@ function readDropDir(root: HTMLElement | null, target: EventTarget | null): stri
   return row && root?.contains(row) ? row.getAttribute(FILE_EXPLORER_DROP_DIR_ATTRIBUTE) : null
 }
 
-/**
- * Makes the explorer tree root the owner of OS file drops: the target folder is
- * read from the row under the cursor at drop time, then imported, refreshed and selected.
- */
 export function useFileExplorerImport({
   worktreeId,
   worktreePath,
@@ -56,13 +55,13 @@ export function useFileExplorerImport({
 }: UseFileExplorerImportParams): (root: HTMLElement | null) => void {
   const rootRef = useRef<HTMLElement | null>(null)
   const [sequence] = useState(createOsFileDropSequence)
-  // Committed scope, read after the import to decide whether to select the result.
+  // Read committed scope after import so speculative navigation cannot select into the wrong workspace.
   const shownRef = useRef({ worktreeId, displayRootPath })
   useLayoutEffect(() => {
     shownRef.current = { worktreeId, displayRootPath }
   }, [worktreeId, displayRootPath])
   const resolveDropDir = (event: DragEvent): string | null => {
-    // Why: worktreePath is null while the files view is hidden behind search or a closed sidebar.
+    // Hidden/search files views have no worktreePath.
     if (!worktreeId || !worktreePath || !displayRootPath) {
       return null
     }
@@ -117,16 +116,15 @@ export function useFileExplorerImport({
           { assertCurrent: guard.assertCurrent, progress: panel.progress }
         )
 
-        // Refresh the destination directory once per gesture
         await refreshDir(destinationDir)
 
-        // Why: only select (highlight) the first imported file — don't trigger
-        // the full reveal machinery because watcher refreshes can otherwise
-        // snap the tree viewport away from the user's drop target.
+        // Select the first import without full reveal; watcher refreshes could otherwise move the viewport away from the drop.
         const imported = results.filter((r) => r.status === 'imported')
         const skipped = results.filter((r) => r.status === 'skipped')
         // Why: a cancel is the user's own decision, not a failure to report back.
-        const failed = results.filter((r) => r.status === 'failed' && r.cancelled !== true)
+        const failed = results
+          .filter((r) => r.status === 'failed')
+          .filter((r) => r.cancelled !== true)
 
         const shown = shownRef.current
         if (
@@ -144,7 +142,8 @@ export function useFileExplorerImport({
               'auto.components.right.sidebar.useFileExplorerImport.132fd0e1e9',
               'Failed to import {{value0}} {{value1}}.',
               { value0: failed.length, value1: noun }
-            )
+            ),
+            { description: describeSharedDropFailureReason(failed) }
           )
         } else if (skipped.length > 0 && imported.length === 0) {
           const noun = skipped.length === 1 ? 'file' : 'files'
@@ -153,7 +152,8 @@ export function useFileExplorerImport({
               'auto.components.right.sidebar.useFileExplorerImport.25919b2050',
               'Skipped {{value0}} {{value1}}.',
               { value0: skipped.length, value1: noun }
-            )
+            ),
+            { description: describeSharedDropSkipReason(skipped) }
           )
         }
       } catch (err) {

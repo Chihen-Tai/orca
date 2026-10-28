@@ -7,9 +7,9 @@ const mocks = await vi.hoisted(async () => {
 
 vi.mock('../../ssh/config/ssh-config-host-picker', () => mocks.sshConfigHostPicker)
 vi.mock('electron', () => mocks.electron)
-vi.mock('../../ssh/ssh-connection-store', () => mocks.sshConnectionStore)
+vi.mock('../../ssh/connection/ssh-connection-store', () => mocks.sshConnectionStore)
 vi.mock('./ssh-host-server-connect', () => mocks.hostServerConnect)
-vi.mock('../../ssh/ssh-connection-manager', () => mocks.sshConnectionManager)
+vi.mock('../../ssh/connection/ssh-connection-manager', () => mocks.sshConnectionManager)
 vi.mock('../../ssh/ssh-channel-multiplexer', () => mocks.sshChannelMultiplexer)
 vi.mock('../../ssh/port-forwarding/ssh-port-forward', () => mocks.sshPortForward)
 vi.mock('../ssh/ssh-port-scanner', () => mocks.sshPortScanner)
@@ -81,9 +81,21 @@ describe('SSH IPC handlers', () => {
         }
       ]
     })
+    // The closed forward stays saved and is listed as not open, so the user can see and remove it.
     expect(mockWindow.webContents.send).toHaveBeenCalledWith('ssh:port-forwards-changed', {
       targetId: 'ssh-1',
-      forwards: []
+      forwards: [],
+      // The exit counts as a failed start, so its retry backs off and the row says why.
+      unrestored: [
+        {
+          localPort: 4100,
+          remoteHost: '127.0.0.1',
+          remotePort: 3000,
+          label: 'app',
+          error: 'exited unexpectedly',
+          stopped: true
+        }
+      ]
     })
   })
 

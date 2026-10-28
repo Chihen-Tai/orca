@@ -190,6 +190,7 @@ function mountSurface(
       2: { left: 220, top: 0, width: 200 }
     },
     renamingPaneId: null,
+    activeAgentId: null,
     renameInputRef: { current: null },
     paneTitleBackground: 'transparent',
     activatePaneTitleInteraction: activate,
@@ -473,7 +474,11 @@ describe('terminal element file drops', () => {
       }),
       ['/client/file.txt'],
       '/owner/workspace/.orca/drops',
-      { assertCurrent: expect.any(Function), progress: expect.any(Object) }
+      {
+        assertCurrent: expect.any(Function),
+        nameExtensionlessImages: true,
+        progress: expect.any(Object)
+      }
     )
     expect(fixture.sends[0]).toHaveBeenCalledExactlyOnceWith(
       '/owner/workspace/.orca/drops/file.txt ',

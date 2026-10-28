@@ -25,9 +25,7 @@ export async function pasteResolvedDropPaths(
   args: NativeDropFlowArgs & { paths: string[]; targetShell: 'posix' | 'windows' }
 ): Promise<void> {
   args.assertCurrent?.()
-  // Why: pane may have unmounted during upload/resolution (tab closed,
-  // worktree switched). Re-check before writing so we do not call sendInput
-  // on a torn-down PTY.
+  // Upload/resolution can outlive the pane; recheck before writing to its PTY.
   const liveTransport = getCurrentTerminalDropTransport(
     args.manager,
     args.paneTransports,

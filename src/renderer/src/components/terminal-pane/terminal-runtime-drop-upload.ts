@@ -6,10 +6,8 @@ import type { NativeDropFlowArgs } from './terminal-drop-paste'
 import { pasteResolvedDropPaths } from './terminal-drop-paste'
 import { describeDropWorkspaceIfInactive } from './terminal-drop-workspace-label'
 import { reportTerminalDropUploadSkipsAndFailures } from './terminal-drop-upload-report'
-import {
-  getTerminalTargetShellForWorktreePath,
-  isTerminalDropWindowsPathLike
-} from './terminal-drop-shell'
+import { getTerminalTargetShellForWorktreePath } from './terminal-drop-shell'
+import { isTerminalDropWindowsPathLike } from '../../../../shared/image-path-paste'
 import { joinRuntimeTerminalDropDir } from './terminal-drop-worktree-path'
 import { runtimeTargetForOwnerEnvironment } from '@/runtime/runtime-client-target'
 
@@ -25,8 +23,7 @@ export async function uploadRuntimeDropPaths(
   try {
     const { results } = await importExternalPathsToRuntime(
       {
-        // Why: drops into existing worktrees must follow the worktree owner,
-        // not the currently focused host in the sidebar.
+        // Use the destination worktree’s owner, which may differ from the focused sidebar host.
         target: runtimeTargetForOwnerEnvironment(args.runtimeEnvironmentId),
         worktreeId: args.worktreeId,
         worktreePath: args.worktreePath,
@@ -38,6 +35,7 @@ export async function uploadRuntimeDropPaths(
       destinationDir,
       {
         assertCurrent: args.assertCurrent,
+        nameExtensionlessImages: true,
         progress: panel.progress
       }
     )

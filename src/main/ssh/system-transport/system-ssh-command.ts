@@ -2,11 +2,12 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { Duplex } from 'node:stream'
 import type { ClientChannel } from 'ssh2'
 import type { SshTarget } from '../../../shared/ssh-types'
-import { wrapRemoteCommandForPosixShell, type SshExecOptions } from '../ssh-connection-utils'
+import { wrapRemoteCommandForPosixShell } from '../ssh-posix-command-wrapper'
+import type { SshExecOptions } from '../connection/ssh-exec-options'
 import { buildSshArgs, type SystemSshBuildArgsOptions } from './system-ssh-args'
 import { findSystemSsh } from './system-ssh-binary'
 
-export type SystemSshProcess = {
+type SystemSshProcess = {
   stdin: NodeJS.WritableStream
   stdout: NodeJS.ReadableStream
   stderr: NodeJS.ReadableStream
@@ -22,13 +23,7 @@ export type SystemSshCommandChannel = ClientChannel & {
 
 type SystemSshCommandOptions = SshExecOptions & SystemSshBuildArgsOptions
 
-/**
- * Spawn a system ssh process connecting to the given target.
- * Used when ssh2 cannot handle the auth method (FIDO2, ControlMaster).
- *
- * The returned process's stdin/stdout are used as the transport for
- * the relay's JSON-RPC protocol, exactly like an ssh2 channel.
- */
+/** Expose system SSH stdin/stdout as the relay channel when ssh2 cannot provide the required authentication/reuse. */
 export function spawnSystemSsh(
   target: SshTarget,
   options?: SystemSshBuildArgsOptions
@@ -62,7 +57,9 @@ export function spawnSystemSshCommand(
   }
 
   const remoteCommand =
-    options?.wrapCommand === false ? command : wrapRemoteCommandForPosixShell(command)
+    options?.wrapCommand === false
+      ? command
+      : wrapRemoteCommandForPosixShell(command, { compress: options?.compressCommand === true })
   const proc = spawn(sshPath, [...buildSshArgs(target, options), remoteCommand], {
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true
@@ -137,8 +134,7 @@ function wrapCommandProcess(proc: ChildProcess): SystemSshCommandChannel {
     duplex.destroy(err)
   }
   const onStdoutData = (data: Buffer): void => {
-    // Why: file downloads can outpace the local destination; pause OpenSSH
-    // instead of buffering the producer-consumer lag in the main process.
+    // Pause OpenSSH when the local consumer lags so downloads cannot accumulate in main-process memory.
     if (!duplex.push(data)) {
       proc.stdout!.pause()
     }

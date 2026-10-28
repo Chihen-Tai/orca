@@ -97,8 +97,7 @@ export async function deliverNativeTerminalFileDrop(
 async function pasteLocalDropPaths(
   args: NativeDropFlowArgs & { localWslDrop: boolean; targetShell: 'posix' | 'windows' }
 ): Promise<void> {
-  // Why: local WSL worktrees run POSIX shells despite a Windows host, so
-  // dropped paths must use the distro-aware resolver before terminal paste.
+  // Local WSL shells need distro-aware POSIX paths despite their Windows host.
   if (isWslUncPath(args.worktreePath)) {
     try {
       const { resolvedPaths, skipped, failed } = await window.api.fs.resolveDroppedPathsForAgent({
@@ -113,8 +112,7 @@ async function pasteLocalDropPaths(
     return
   }
 
-  // Why: non-WSL local drops stay reference-in-place. Trailing space
-  // separates multiple paths, matching standard drag-and-drop UX.
+  // Keep non-WSL local paths in place; trailing spaces separate multiple dropped paths.
   await pasteResolvedDropPaths({
     ...args,
     paths: args.localWslDrop ? args.dataPaths.map(toLocalWslDropPath) : args.dataPaths,
@@ -129,11 +127,18 @@ async function uploadRemoteDropPaths(
     worktreeId: string
   }
 ): Promise<void> {
-  const message = translate(
-    'auto.components.terminal.pane.terminal.drop.handler.29c031b49a',
-    'Uploading {{value0}} file{{value1}} to remote…',
-    { value0: args.dataPaths.length, value1: args.dataPaths.length === 1 ? '' : 's' }
-  )
+  const message =
+    args.dataPaths.length === 1
+      ? translate(
+          'auto.components.terminal.pane.terminal.drop.handler.uploadingFileToRemoteSingular',
+          'Uploading {{count}} file to remote…',
+          { count: args.dataPaths.length }
+        )
+      : translate(
+          'auto.components.terminal.pane.terminal.drop.handler.uploadingFileToRemotePlural',
+          'Uploading {{count}} files to remote…',
+          { count: args.dataPaths.length }
+        )
   const pending = openWorktreeScopedToast({
     worktreeId: args.worktreeId,
     show: (id) => (id === undefined ? toast.loading(message) : toast.loading(message, { id }))

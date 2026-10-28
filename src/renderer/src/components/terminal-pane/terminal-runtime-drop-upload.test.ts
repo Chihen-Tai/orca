@@ -191,7 +191,7 @@ describe('uploadRuntimeDropPaths panel scope', () => {
     await uploadRuntimeDropPaths(dropArgs([row.sourcePath, row.sourcePath]))
 
     expect(toast.error).toHaveBeenCalledWith('Failed to upload 1 file.', {
-      description: undefined
+      description: "Couldn't upload this file."
     })
     vi.unstubAllGlobals()
   })

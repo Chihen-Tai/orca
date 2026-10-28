@@ -7,7 +7,7 @@ import {
   scopeRuntimeUploadId
 } from './runtime-upload-cancellation'
 
-type CancelSender = Pick<WebContents, 'id' | 'once' | 'removeListener'>
+type CancelSender = Pick<WebContents, 'id' | 'on' | 'once' | 'removeListener'>
 
 const sendersWithCleanup = new WeakSet<CancelSender>()
 

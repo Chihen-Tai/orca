@@ -1,14 +1,11 @@
-/**
- * The connect path's terminal verdict for a host that may convert to a managed server. The host's
- * own relay endpoints decide, so terminals another desktop opened there still block.
- */
+/** Let host-owned endpoints decide conversion safety, including terminals another desktop opened. */
 import type { Store } from '../../persistence'
 import type { HostServerTerminalVerdict } from '../ssh-host-server-on-connect'
 import {
   censusHostRelayEndpoints,
   type HostRelayEndpointCensus
 } from './ssh-host-relay-endpoint-census'
-import type { SshConnection } from '../ssh-connection'
+import type { SshConnection } from '../connection/ssh-connection'
 import { censusWindowsHostRelays, windowsCensusNodePath } from './ssh-host-relay-windows-census'
 import { execCommand } from '../remote-exec/remote-exec-command'
 import { readRemoteHomeCommand } from '../ssh-remote-commands'
@@ -56,7 +53,6 @@ export function hostTerminalProofFromCensus(
   return { verdict: census.verdict === 'live' ? 'live' : 'unverifiable', count: census.count }
 }
 
-/** The census over the connect's bootstrap connection, before any relay session exists. */
 export async function censusSshHostRelaysBeforeSession(
   conn: SshConnection,
   targetId: string,

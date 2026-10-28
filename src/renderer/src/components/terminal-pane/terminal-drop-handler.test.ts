@@ -9,6 +9,19 @@ const mocks = vi.hoisted(() => {
   > = {
     repo1: [{ id: 'wt-1', repoId: 'repo1', path: '/remote/repo', hostId: 'runtime:env-1' }]
   }
+  const projects: {
+    id: string
+    localWindowsRuntimePreference:
+      | { kind: 'inherit-global' }
+      | { kind: 'windows-host' }
+      | { kind: 'wsl'; distro: string | null }
+  }[] = [
+    {
+      id: 'repo1',
+      localWindowsRuntimePreference: { kind: 'inherit-global' as const }
+    }
+  ]
+
   return {
     toastLoading: vi.fn(() => 'toast-1'),
     toastCustom: vi.fn((_render: unknown, _options?: Record<string, unknown>) => 'toast-1'),
@@ -21,18 +34,7 @@ const mocks = vi.hoisted(() => {
       activeRepoId: 'repo1',
       activeWorktreeId: 'wt-1',
       settings: { activeRuntimeEnvironmentId: 'env-1' as string | null },
-      projects: [
-        {
-          id: 'repo1',
-          localWindowsRuntimePreference: { kind: 'inherit-global' as const }
-        }
-      ] as {
-        id: string
-        localWindowsRuntimePreference:
-          | { kind: 'inherit-global' }
-          | { kind: 'windows-host' }
-          | { kind: 'wsl'; distro: string | null }
-      }[],
+      projects,
       repos: [
         {
           id: 'repo1',
@@ -136,6 +138,7 @@ function announceRowThenResolve(value: unknown) {
 
 const EXPECTED_IMPORT_OPTIONS = {
   assertCurrent: expect.any(Function),
+  nameExtensionlessImages: true,
   progress: {
     onStart: expect.any(Function),
     onRowProgress: expect.any(Function),
