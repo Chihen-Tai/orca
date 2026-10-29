@@ -66,7 +66,10 @@ function quietHandlers(): RuntimeImportProgressHandlers {
 }
 
 /** One staged file whose upload rejects with `error` after the user clicked Cancel on its row. */
-async function importFileThatThrowsAfterCancel(error: string): Promise<ImportItemResult[]> {
+async function importFileThatThrowsAfterCancel(
+  error: string,
+  progress: RuntimeImportProgressHandlers = quietHandlers()
+): Promise<ImportItemResult[]> {
   fsStageExternalPathsForRuntimeUpload.mockResolvedValue({
     sources: [
       {
@@ -90,7 +93,7 @@ async function importFileThatThrowsAfterCancel(error: string): Promise<ImportIte
     },
     ['/Users/me/clip.mp4'],
     '/remote/repo/uploads',
-    { progress: { ...quietHandlers(), isCancelled: () => true } }
+    { progress: { ...progress, isCancelled: () => true } }
   )
   return results
 }
@@ -352,6 +355,17 @@ describe('runtime file client', () => {
 
     expect(result?.status).toBe('failed')
     expect(result).not.toHaveProperty('cancelled')
+  })
+
+  it('settles the row as cancelled only when the cancel is what stopped it', async () => {
+    const cancelledRow = quietHandlers()
+    await importFileThatThrowsAfterCancel('Upload cancelled', cancelledRow)
+    const failedRow = quietHandlers()
+    await importFileThatThrowsAfterCancel('Remote connection dropped', failedRow)
+
+    expect(cancelledRow.onRowSettled).toHaveBeenCalledWith(expect.any(String), 'cancelled')
+    expect(failedRow.onRowSettled).toHaveBeenCalledWith(expect.any(String), 'failed')
+    expect(failedRow.onRowSettled).not.toHaveBeenCalledWith(expect.any(String), 'cancelled')
   })
   it('cleans up the staged temp path when the streamed upload fails', async () => {
     fsStageExternalPathsForRuntimeUpload.mockResolvedValue({

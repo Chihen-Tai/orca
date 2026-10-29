@@ -72,7 +72,7 @@ export type RuntimeImportProgressRow = {
 export type RuntimeImportProgressHandlers = {
   onStart: (rows: RuntimeImportProgressRow[]) => void
   onRowProgress: (uploadId: string, sentBytes: number) => void
-  onRowSettled: (uploadId: string, status: 'done' | 'failed') => void
+  onRowSettled: (uploadId: string, status: 'done' | 'failed' | 'cancelled') => void
   onFinish: () => void
   /** Lets the import stop a source the user cancelled before it streams any file. */
   isCancelled?: (uploadId: string) => boolean

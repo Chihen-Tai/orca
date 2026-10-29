@@ -95,10 +95,21 @@ describe('createUploadProgressPanel', () => {
     cancel('u1')
     cancel('u2')
 
-    upload.progress.onRowSettled('u1', 'failed')
+    upload.progress.onRowSettled('u1', 'cancelled')
     upload.progress.onRowSettled('u2', 'done')
 
     expect(panel.updateRow).toHaveBeenCalledWith('u1', { status: 'cancelled' })
     expect(panel.updateRow).toHaveBeenCalledWith('u2', { status: 'done' })
+  })
+
+  it('ends a cancel-clicked source that failed for another reason as failed', () => {
+    const upload = createUploadProgressPanel()
+    upload.progress.onStart([row])
+    openPanel.mock.calls[0][2]('u1')
+
+    upload.progress.onRowSettled('u1', 'failed')
+
+    expect(panel.updateRow).toHaveBeenCalledWith('u1', { status: 'failed' })
+    expect(panel.updateRow).not.toHaveBeenCalledWith('u1', { status: 'cancelled' })
   })
 })

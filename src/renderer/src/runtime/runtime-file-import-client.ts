@@ -243,17 +243,16 @@ export async function importExternalPathsToRuntime(
           ).catch(() => {})
         }
         const reason = error instanceof Error ? error.message : String(error)
+        // Why: per source, since a path dropped twice can be cancelled once.
+        const cancelled = wasStoppedByCancel(handlers, sourceUploadId, reason)
         results.push({
           sourcePath: source.sourcePath,
           status: 'failed',
           reason,
-          // Why: per source, since a path dropped twice can be cancelled once.
-          ...(wasStoppedByCancel(handlers, sourceUploadId, reason) ? { cancelled: true } : {})
+          ...(cancelled ? { cancelled: true } : {})
         })
-        // Why: reported as failed even for a cancel; the upload panel maps a failed source the
-        // user cancelled to 'cancelled', so the user's own action is not relabelled.
         if (sourceUploadId) {
-          handlers?.onRowSettled(sourceUploadId, 'failed')
+          handlers?.onRowSettled(sourceUploadId, cancelled ? 'cancelled' : 'failed')
         }
       }
     }

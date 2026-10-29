@@ -43,11 +43,8 @@ export function createUploadProgressPanel(scope?: TransferPanelScope): UploadPro
         )
       },
       onRowProgress: (uploadId, sentBytes) => panel?.updateRow(uploadId, { sentBytes }),
-      // Why: a cancelled source reports failed; one that finished anyway reports done.
-      onRowSettled: (uploadId, status) =>
-        panel?.updateRow(uploadId, {
-          status: status === 'failed' && cancelledUploadIds.has(uploadId) ? 'cancelled' : status
-        }),
+      // Why: the import attributes the outcome; a click alone does not make a failure a cancel.
+      onRowSettled: (uploadId, status) => panel?.updateRow(uploadId, { status }),
       isCancelled: (uploadId) => cancelledUploadIds.has(uploadId),
       onFinish: () => panel?.settle()
     },
