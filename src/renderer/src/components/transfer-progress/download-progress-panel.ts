@@ -1,4 +1,5 @@
 import { createBrowserUuid } from '@/lib/browser-uuid'
+import { isAbortSignalReason } from '../../../../shared/abort-signal-reason'
 import type {
   RuntimeFileDownloadResult,
   RuntimeFileDownloadTransfer
@@ -55,7 +56,8 @@ export async function runRemoteDownloadWithProgress(
     view.panel?.close()
     return result
   } catch (error) {
-    if (controller.signal.aborted) {
+    // Why: a dropped connection after the click is still a failure, not a cancel.
+    if (isAbortSignalReason(controller.signal, error)) {
       view.panel?.updateRow(rowId, { status: 'cancelled' })
       view.panel?.settle()
       return { canceled: true }

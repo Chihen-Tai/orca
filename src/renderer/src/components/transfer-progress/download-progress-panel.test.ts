@@ -81,6 +81,23 @@ describe('runRemoteDownloadWithProgress', () => {
     expect(panel.settle).not.toHaveBeenCalled()
   })
 
+  it('rethrows a failure that lands after the cancel click instead of claiming Cancelled', async () => {
+    const download = runRemoteDownloadWithProgress('a.bin', (transfer) => {
+      transfer.trackProgress(10).flush()
+      return new Promise((_resolve, reject) => {
+        transfer.signal.addEventListener('abort', () =>
+          reject(new Error('Remote connection dropped'))
+        )
+      })
+    })
+    openPanel.mock.calls[0][2]('d1')
+
+    await expect(download).rejects.toThrow('Remote connection dropped')
+    expect(panel.updateRow).not.toHaveBeenCalledWith('d1', { status: 'cancelled' })
+    expect(panel.settle).not.toHaveBeenCalled()
+    expect(panel.close).toHaveBeenCalledTimes(1)
+  })
+
   it('shows bytes without a percentage when the total is unknown', async () => {
     await runRemoteDownloadWithProgress('a.bin', async (transfer) => {
       transfer.trackProgress(null).addBytes(3)
