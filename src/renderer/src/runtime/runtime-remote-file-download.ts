@@ -55,16 +55,6 @@ export async function readRemoteDownloadChunk(
   )
 }
 
-export async function readRemoteDownloadSize(remoteArgs: RemoteFileDownloadArgs): Promise<number> {
-  const stat = await callRuntimeRpc<{ size: number }>(
-    remoteArgs.target,
-    'files.stat',
-    { worktree: remoteArgs.worktreeSelector, relativePath: remoteArgs.relativePath },
-    { timeoutMs: 15_000 }
-  )
-  return stat.size
-}
-
 export async function downloadRemoteFileViaPreview(
   remoteArgs: RemoteFileDownloadArgs,
   suggestedName: string,

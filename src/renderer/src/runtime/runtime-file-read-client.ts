@@ -36,9 +36,9 @@ import {
 import {
   downloadRemoteFileViaPreview,
   readRemoteDownloadChunk,
-  readRemoteDownloadSize,
   remoteChunkedDownloadAvailable
 } from './runtime-remote-file-download'
+import { statRuntimePath } from './runtime-file-metadata-client'
 
 export { localAccess } from './runtime-file-routing'
 
@@ -228,7 +228,12 @@ export async function downloadRuntimeFile(
   let finished = false
   // Why: the size only feeds the progress bar, so an old or failing stat must not block the download.
   const progress = transfer
-    ? transfer.trackProgress(await readRemoteDownloadSize(remoteArgs).catch(() => null))
+    ? transfer.trackProgress(
+        await statRuntimePath(context, filePath).then(
+          (stat) => stat.size,
+          () => null
+        )
+      )
     : undefined
   try {
     let offset = 0
