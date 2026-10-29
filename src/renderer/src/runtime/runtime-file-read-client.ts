@@ -4,7 +4,6 @@ import { RuntimeRpcCallError } from './runtime-rpc-result'
 import { BINARY_PROBE_BYTES } from '../../../shared/binary-buffer'
 import type {
   RuntimeFileDownloadResult,
-  RuntimeFileDownloadTransfer,
   RuntimeFileOperationArgs,
   RuntimeFileReadArgs,
   RuntimeReadableFileContent
@@ -38,7 +37,6 @@ import {
   readRemoteDownloadChunk,
   remoteChunkedDownloadAvailable
 } from './runtime-remote-file-download'
-import { statRuntimePath } from './runtime-file-metadata-client'
 
 export { localAccess } from './runtime-file-routing'
 
@@ -189,8 +187,7 @@ export async function readRuntimeFilePreview(
 export async function downloadRuntimeFile(
   context: RuntimeFileOperationArgs,
   filePath: string,
-  suggestedName: string,
-  transfer?: RuntimeFileDownloadTransfer
+  suggestedName: string
 ): Promise<RuntimeFileDownloadResult> {
   assertExternalSshReadOwnership(
     context.target,
@@ -214,9 +211,7 @@ export async function downloadRuntimeFile(
   }
 
   if (!(await remoteChunkedDownloadAvailable(remoteArgs))) {
-    // Why: an older server answers in one capped reply; the panel still lets the user cancel.
-    transfer?.trackProgress(null).flush()
-    return downloadRemoteFileViaPreview(remoteArgs, suggestedName, transfer?.signal)
+    return downloadRemoteFileViaPreview(remoteArgs, suggestedName)
   }
 
   const download = await window.api.fs.startDownloadedFile({ suggestedName })
@@ -225,27 +220,15 @@ export async function downloadRuntimeFile(
   }
 
   let finished = false
-  // Why: the size only feeds the progress bar, so an old or failing stat must not block the download.
-  const progress = transfer
-    ? transfer.trackProgress(
-        await statRuntimePath(context, filePath).then(
-          (stat) => stat.size,
-          () => null
-        )
-      )
-    : undefined
   try {
     let offset = 0
     for (;;) {
-      // Why: checked per chunk; a read-only chunk in flight is cheaper to finish than to abort.
-      transfer?.signal.throwIfAborted()
       const chunk = await readRemoteDownloadChunk(remoteArgs, offset)
       if (chunk.bytesRead > 0) {
         await window.api.fs.appendDownloadedFileChunk({
           transferId: download.transferId,
           contentBase64: chunk.contentBase64
         })
-        progress?.addBytes(chunk.bytesRead)
       }
       offset += chunk.bytesRead
       if (chunk.eof) {
@@ -255,13 +238,10 @@ export async function downloadRuntimeFile(
         throw new Error('Remote download stalled before reaching EOF')
       }
     }
-    // Why: a cancel during the final append would otherwise still commit the file.
-    transfer?.signal.throwIfAborted()
     const result = await window.api.fs.finishDownloadedFile({ transferId: download.transferId })
     finished = true
     return result
   } finally {
-    progress?.flush()
     if (!finished) {
       await window.api.fs.cancelDownloadedFile({ transferId: download.transferId }).catch(() => {})
     }

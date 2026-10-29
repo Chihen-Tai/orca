@@ -1,4 +1,3 @@
-import type { DownloadProgressTracker } from '@/components/transfer-progress/download-progress-tracker'
 import type { RuntimeClientTarget } from '../../../shared/runtime-client-target'
 import type { LocalFileAccess } from '../../../shared/local-file-access'
 
@@ -49,9 +48,3 @@ export type RuntimeFileOperationArgs = {
 export type RuntimeFileDownloadResult =
   | { canceled: true }
   | { canceled: false; destinationPath: string }
-
-/** Lets a runtime download report progress and be canceled. */
-export type RuntimeFileDownloadTransfer = {
-  signal: AbortSignal
-  trackProgress: (totalBytes: number | null) => DownloadProgressTracker
-}

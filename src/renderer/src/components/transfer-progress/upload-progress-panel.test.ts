@@ -11,9 +11,7 @@ const { panel, openPanel } = vi.hoisted(() => {
   }
   return {
     panel,
-    openPanel: vi.fn(
-      (_direction: string, _rows: unknown[], _onCancel: (transferId: string) => void) => panel
-    )
+    openPanel: vi.fn((_rows: unknown[], _onCancel: (transferId: string) => void) => panel)
   }
 })
 
@@ -47,7 +45,6 @@ describe('createUploadProgressPanel', () => {
     upload.progress.onFinish()
 
     expect(openPanel).toHaveBeenCalledWith(
-      'upload',
       [{ transferId: 'u1', name: 'videos', sentBytes: 0, totalBytes: 0, status: 'active' }],
       expect.any(Function),
       undefined
@@ -63,7 +60,7 @@ describe('createUploadProgressPanel', () => {
   it('cancels a row in main and tells the import which row was cancelled', () => {
     const upload = createUploadProgressPanel()
     upload.progress.onStart([row])
-    const cancel = openPanel.mock.calls[0][2]
+    const cancel = openPanel.mock.calls[0][1]
     cancel('u1')
 
     expect(cancelRuntimeUpload).toHaveBeenCalledWith({ uploadId: 'u1' })

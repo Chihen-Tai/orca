@@ -1,9 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import {
-  copyFileToOsClipboard,
-  downloadRemoteFile,
-  pickRemoteDownloadTarget
-} from './file-explorer-row-file-transfer'
+import { copyFileToOsClipboard, downloadRemoteFile } from './file-explorer-row-file-transfer'
 import {
   shouldShowCollapseFolderAction,
   shouldShowFindInFolderAction,
@@ -15,28 +11,17 @@ import {
 import { directoryNode, fileNode } from './file-explorer-tree-node-test-fixtures'
 import type * as RuntimeFileReadClient from '@/runtime/runtime-file-read-client'
 
-const { downloadRuntimeFileMock, toastErrorMock, toastSuccessMock, testTransfer } = vi.hoisted(
-  () => ({
-    downloadRuntimeFileMock: vi.fn(),
-    toastErrorMock: vi.fn(),
-    toastSuccessMock: vi.fn(),
-    testTransfer: {
-      signal: new AbortController().signal,
-      trackProgress: () => ({ addBytes: () => {}, flush: () => {} })
-    }
-  })
-)
+const { downloadRuntimeFileMock, toastErrorMock, toastSuccessMock } = vi.hoisted(() => ({
+  downloadRuntimeFileMock: vi.fn(),
+  toastErrorMock: vi.fn(),
+  toastSuccessMock: vi.fn()
+}))
 
 vi.mock('sonner', () => ({
   toast: {
     error: toastErrorMock,
     success: toastSuccessMock
   }
-}))
-
-vi.mock('@/components/transfer-progress/download-progress-panel', () => ({
-  runRemoteDownloadWithProgress: (_name: string, run: (transfer: unknown) => Promise<unknown>) =>
-    run(testTransfer)
 }))
 
 vi.mock('@/runtime/runtime-file-read-client', async (importOriginal) => {
@@ -329,8 +314,7 @@ describe('FileExplorerRow collapse folder action', () => {
     expect(downloadRuntimeFileMock).toHaveBeenCalledWith(
       runtimeContext,
       '/repo/src/index.ts',
-      'index.ts',
-      testTransfer
+      'index.ts'
     )
     expect(toastSuccessMock).toHaveBeenCalledWith("Downloaded 'index.ts'", {
       action: {
@@ -339,19 +323,6 @@ describe('FileExplorerRow collapse folder action', () => {
       }
     })
     expect(toastErrorMock).not.toHaveBeenCalled()
-  })
-
-  it('downloads SSH files through the host runtime and keeps folders on the connection', () => {
-    const runtimeContext = {
-      target: { kind: 'environment' as const, environmentId: 'env-1' },
-      worktreeId: 'wt-1',
-      worktreePath: '/repo',
-      connectionId: 'ssh-1'
-    }
-    expect(pickRemoteDownloadTarget(fileNode, 'ssh-1', runtimeContext)).toBe(runtimeContext)
-    expect(pickRemoteDownloadTarget(directoryNode, 'ssh-1', runtimeContext)).toBe('ssh-1')
-    expect(pickRemoteDownloadTarget(fileNode, 'ssh-1', null)).toBe('ssh-1')
-    expect(pickRemoteDownloadTarget(fileNode, null, null)).toBeNull()
   })
 
   it('shows a failure toast when remote download fails', async () => {

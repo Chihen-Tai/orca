@@ -57,8 +57,7 @@ export async function readRemoteDownloadChunk(
 
 export async function downloadRemoteFileViaPreview(
   remoteArgs: RemoteFileDownloadArgs,
-  suggestedName: string,
-  signal?: AbortSignal
+  suggestedName: string
 ): Promise<RuntimeFileDownloadResult> {
   try {
     const result = await callRuntimeRpc<RuntimeFilePreviewResult>(
@@ -71,8 +70,6 @@ export async function downloadRemoteFileViaPreview(
     if (result.isBinary && !result.content && !result.isImage && !result.mimeType) {
       throw new Error(REMOTE_DOWNLOAD_UPDATE_REQUIRED_MESSAGE)
     }
-    // Why: older servers return the whole file in one reply, so cancel can only stop the save.
-    signal?.throwIfAborted()
     return window.api.fs.saveDownloadedFile({
       suggestedName,
       content: result.content,

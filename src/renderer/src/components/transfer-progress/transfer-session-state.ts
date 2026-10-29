@@ -1,5 +1,3 @@
-export type TransferDirection = 'upload' | 'download'
-
 // `unconfirmed` is a cancel whose result never came back, so the remote state is unknown.
 export type TransferRowStatus =
   | 'active'
@@ -14,7 +12,6 @@ export type TransferRow = {
   transferId: string
   name: string
   sentBytes: number
-  /** 0 while unknown (not yet measured, or the size lookup failed). */
   totalBytes: number
   status: TransferRowStatus
   kind?: 'file' | 'directory'
@@ -22,7 +19,6 @@ export type TransferRow = {
 
 export type TransferSession = {
   sessionId: string
-  direction: TransferDirection
   rows: TransferRow[]
   /** Every row has stopped moving; the panel shows its outcome, then leaves. */
   settled: boolean
@@ -52,12 +48,8 @@ export function getTransferSession(sessionId: string): TransferSession | undefin
   return sessions.get(sessionId)
 }
 
-export function startTransferSession(
-  sessionId: string,
-  direction: TransferDirection,
-  rows: TransferRow[]
-): void {
-  sessions.set(sessionId, { sessionId, direction, rows, settled: false, collapsed: false })
+export function startTransferSession(sessionId: string, rows: TransferRow[]): void {
+  sessions.set(sessionId, { sessionId, rows, settled: false, collapsed: false })
   emit()
 }
 
@@ -123,8 +115,7 @@ export function updateTransferRow(
 export function summarizeTransferSession(session: TransferSession): {
   sentBytes: number
   totalBytes: number
-  /** Null while any moving row has no known total, so the header cannot claim a percentage. */
-  percent: number | null
+  percent: number
   activeCount: number
   doneCount: number
   cancelledCount: number
@@ -134,9 +125,6 @@ export function summarizeTransferSession(session: TransferSession): {
   let activeCount = 0
   let doneCount = 0
   let cancelledCount = 0
-  let unknownTotal = false
-  // Why: unknown-total bytes have no denominator and would push the header to 100% early.
-  let knownSentBytes = 0
   for (const row of session.rows) {
     if (row.status === 'done') {
       doneCount += 1
@@ -149,22 +137,16 @@ export function summarizeTransferSession(session: TransferSession): {
     if (row.status === 'cancelled' || row.status === 'failed') {
       continue
     }
-    // Why: a row without a total still moved bytes; count them rather than zeroing the row.
-    sentBytes += row.totalBytes > 0 ? Math.min(row.sentBytes, row.totalBytes) : row.sentBytes
-    knownSentBytes += row.totalBytes > 0 ? Math.min(row.sentBytes, row.totalBytes) : 0
+    sentBytes += Math.min(row.sentBytes, row.totalBytes)
     totalBytes += row.totalBytes
     if (row.status === 'active' || row.status === 'cancelling' || row.status === 'unconfirmed') {
       activeCount += 1
-      unknownTotal ||= row.totalBytes <= 0
     }
   }
   return {
     sentBytes,
     totalBytes,
-    percent:
-      unknownTotal || totalBytes <= 0
-        ? null
-        : Math.min(100, Math.floor((knownSentBytes / totalBytes) * 100)),
+    percent: totalBytes > 0 ? Math.min(100, Math.floor((sentBytes / totalBytes) * 100)) : 0,
     activeCount,
     doneCount,
     cancelledCount

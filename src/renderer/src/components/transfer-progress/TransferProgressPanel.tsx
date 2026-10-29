@@ -1,12 +1,5 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
-import {
-  ChevronDownIcon,
-  DownloadIcon,
-  FileIcon,
-  FolderIcon,
-  UploadIcon,
-  XIcon
-} from 'lucide-react'
+import { ChevronDownIcon, FileIcon, FolderIcon, UploadIcon, XIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { cn } from '@/lib/utils'
@@ -16,7 +9,6 @@ import {
   subscribeToTransferSessions,
   summarizeTransferSession,
   toggleTransferCollapsed,
-  type TransferDirection,
   type TransferRow
 } from './transfer-session-state'
 import { formatTransferredOfTotal, toRowPercent } from './transfer-progress-format'
@@ -68,9 +60,7 @@ export function TransferProgressPanel({
   }
   const collapsed = session.collapsed
   const summary = summarizeTransferSession(session)
-  const DirectionIcon = session.direction === 'upload' ? UploadIcon : DownloadIcon
   const heading = formatTransferProgressHeading({
-    direction: session.direction,
     rowCount: session.rows.length,
     settled: session.settled,
     doneCount: summary.doneCount,
@@ -89,12 +79,12 @@ export function TransferProgressPanel({
     >
       <div className="flex items-center gap-3 px-3 py-2.5">
         <span className="flex size-7 shrink-0 items-center justify-center rounded-full border border-border">
-          <DirectionIcon className="size-3.5" aria-hidden />
+          <UploadIcon className="size-3.5" aria-hidden />
         </span>
         <span className="min-w-0 flex-1 truncate text-sm">{heading}</span>
         {/* Fixed width so the row never reflows as the number gains digits. */}
         <span className="w-9 shrink-0 text-right text-sm tabular-nums text-muted-foreground">
-          {session.settled || summary.percent === null ? '' : `${summary.percent}%`}
+          {session.settled ? '' : `${summary.percent}%`}
         </span>
         <Button
           type="button"
@@ -125,12 +115,7 @@ export function TransferProgressPanel({
         // Why: a large batch would otherwise push the header and its controls off-screen.
         <ul className="max-h-[50vh] overflow-y-auto scrollbar-sleek border-t border-border">
           {session.rows.map((row) => (
-            <TransferRowItem
-              key={row.transferId}
-              row={row}
-              direction={session.direction}
-              onCancel={onCancel}
-            />
+            <TransferRowItem key={row.transferId} row={row} onCancel={onCancel} />
           ))}
         </ul>
       )}
@@ -140,15 +125,12 @@ export function TransferProgressPanel({
 
 function TransferRowItem({
   row,
-  direction,
   onCancel
 }: {
   row: TransferRow
-  direction: TransferDirection
   onCancel: (transferId: string) => void
 }): React.JSX.Element {
-  // Why: an unknown total would read 0% forever; a finished row still reads 100%.
-  const percent = row.status === 'done' || row.totalBytes > 0 ? toRowPercent(row) : null
+  const percent = toRowPercent(row)
   const inactive = row.status !== 'active'
   const RowIcon = row.kind === 'directory' ? FolderIcon : FileIcon
 
@@ -165,21 +147,10 @@ function TransferRowItem({
       </span>
       {/* Dimmed through a wrapper: <Progress> owns its own effects. */}
       <div className={cn('w-24 shrink-0', inactive && 'opacity-40')}>
-        {percent === null && !inactive ? (
-          // Why: bytes are moving toward a total not known yet; a bar parked at 0 reads as stuck.
-          <div
-            role="progressbar"
-            aria-label={row.name}
-            className="h-1.5 overflow-hidden rounded-full bg-primary/20"
-          >
-            <div className="h-full w-2/5 animate-[skill-update-slide_1.35s_ease-in-out_infinite] rounded-full bg-primary motion-reduce:w-full motion-reduce:animate-none motion-reduce:opacity-40" />
-          </div>
-        ) : (
-          <Progress value={percent ?? 0} aria-label={row.name} className="h-1.5" />
-        )}
+        <Progress value={percent} aria-label={row.name} className="h-1.5" />
       </div>
       <span className="w-9 shrink-0 text-right text-[13px] tabular-nums text-muted-foreground">
-        {percent === null ? '' : `${percent}%`}
+        {percent}%
       </span>
       {/* Cancel is a back-out, not a destructive action: ghost, no color. */}
       <Button
@@ -188,11 +159,7 @@ function TransferRowItem({
         size="icon-xs"
         disabled={inactive}
         onClick={() => onCancel(row.transferId)}
-        aria-label={
-          direction === 'upload'
-            ? translate('transferProgress.cancelUpload', 'Cancel upload')
-            : translate('transferProgress.cancelDownload', 'Cancel download')
-        }
+        aria-label={translate('transferProgress.cancelUpload', 'Cancel upload')}
         className={inactive ? 'invisible' : undefined}
       >
         <XIcon className="size-4" />

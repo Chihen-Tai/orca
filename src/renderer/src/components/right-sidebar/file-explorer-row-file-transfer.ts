@@ -4,7 +4,6 @@ import { translate } from '@/i18n/i18n'
 import { extractIpcErrorMessage } from '@/lib/ipc-error'
 import { downloadRuntimeFile } from '@/runtime/runtime-file-read-client'
 import type { RuntimeFileOperationArgs } from '@/runtime/runtime-file-client-types'
-import { runRemoteDownloadWithProgress } from '@/components/transfer-progress/download-progress-panel'
 import type { TreeNode } from './file-explorer-types'
 import { shouldShowCopyFileAction } from './file-explorer-row-action-visibility'
 
@@ -14,16 +13,6 @@ function getLocalDownloadName(destinationPath: string, platform: NodeJS.Platform
       ? Math.max(destinationPath.lastIndexOf('/'), destinationPath.lastIndexOf('\\'))
       : destinationPath.lastIndexOf('/')
   return destinationPath.slice(lastSeparatorIndex + 1)
-}
-
-// Why: the runtime cannot download folders, so those still need the SSH connection.
-export function pickRemoteDownloadTarget(
-  node: Pick<TreeNode, 'isDirectory'>,
-  connectionId: string | null | undefined,
-  runtimeContext: RuntimeFileOperationArgs | null | undefined
-): string | RuntimeFileOperationArgs | null {
-  const preferred = node.isDirectory ? connectionId : runtimeContext
-  return preferred || connectionId || runtimeContext || null
 }
 
 export async function downloadRemoteFile(
@@ -42,9 +31,7 @@ export async function downloadRemoteFile(
               filePath: node.path,
               connectionId: connectionIdOrRuntimeContext
             })
-        : await runRemoteDownloadWithProgress(node.name, (transfer) =>
-            downloadRuntimeFile(connectionIdOrRuntimeContext, node.path, node.name, transfer)
-          )
+        : await downloadRuntimeFile(connectionIdOrRuntimeContext, node.path, node.name)
     if (result.canceled) {
       return
     }

@@ -1,13 +1,10 @@
 import type { MarkdownDocument } from '../../../shared/filesystem-entry-types'
 import type { RuntimeFileOperationArgs } from './runtime-file-client-types'
-import {
-  assertLocalFilesystemFallbackAllowed,
-  getRemoteFileArgs,
-  localAccess
-} from './runtime-file-routing'
+import { assertLocalFilesystemFallbackAllowed, getRemoteFileArgs } from './runtime-file-routing'
 import { callRuntimeRpc } from './runtime-rpc-client'
 import { toRuntimeWorktreeSelector } from './runtime-worktree-selector'
 import type { LocalFileAccess } from '../../../shared/local-file-access'
+import { localAccess } from './runtime-file-read-client'
 
 export async function listRuntimeMarkdownDocuments(
   context: RuntimeFileOperationArgs,
