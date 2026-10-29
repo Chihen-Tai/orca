@@ -16,10 +16,7 @@ function getLocalDownloadName(destinationPath: string, platform: NodeJS.Platform
   return destinationPath.slice(lastSeparatorIndex + 1)
 }
 
-/**
- * SSH workspaces are served by the host's runtime, so a file downloads through it; a folder,
- * which the runtime cannot download, still needs the SSH connection.
- */
+// Why: the runtime cannot download folders, so those still need the SSH connection.
 export function pickRemoteDownloadTarget(
   node: Pick<TreeNode, 'isDirectory'>,
   connectionId: string | null | undefined,

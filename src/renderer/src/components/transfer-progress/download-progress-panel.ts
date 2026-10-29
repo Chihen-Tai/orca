@@ -29,8 +29,7 @@ export async function runRemoteDownloadWithProgress(
   }
 
   const onProgress = (progress: DownloadProgress): void => {
-    // Why: the first event arrives once the save dialog has closed, so a
-    // dismissed dialog never flashes a panel.
+    // Why: opening on the first event keeps a dismissed save dialog from flashing a panel.
     view.panel ??= openTransferProgressPanel(
       'download',
       [{ transferId: rowId, name, sentBytes: 0, totalBytes: 0, status: 'active' }],
@@ -47,8 +46,7 @@ export async function runRemoteDownloadWithProgress(
       signal: controller.signal,
       trackProgress: (totalBytes) => createDownloadProgressTracker({ totalBytes, emit: onProgress })
     })
-    // Why: a cancel that lost the race to completion still ends as a download; the caller's
-    // "Downloaded … / Open" toast states that, so the panel never claims "Cancelled".
+    // Why: a cancel that lost the race is still a download, which the caller's toast reports.
     view.panel?.close()
     return result
   } catch (error) {

@@ -17,8 +17,7 @@ export async function downloadAndOpenRemoteTerminalFile(
 ): Promise<void> {
   const name = basename(filePath) || filePath
   try {
-    // Why: SSH workspaces are served by the host's runtime; downloadRuntimeFile still falls
-    // back to the SSH connection for a context with no runtime owner.
+    // Why: SSH workspaces are served by the host's runtime, with an SSH fallback.
     const result = await runRemoteDownloadWithProgress(name, (transfer) =>
       downloadRuntimeFile(fileContext, filePath, name, transfer)
     )

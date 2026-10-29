@@ -38,8 +38,7 @@ export function createDownloadProgressTracker(args: {
       }
       transferredBytes += bytes
       dirty = true
-      // Why: fast links deliver many chunks per second; re-rendering the toast for each costs
-      // more than the transfer itself.
+      // Why: re-rendering per chunk on a fast link costs more than the transfer itself.
       if (now() - lastEmittedAt >= DOWNLOAD_PROGRESS_INTERVAL_MS) {
         flush()
       }

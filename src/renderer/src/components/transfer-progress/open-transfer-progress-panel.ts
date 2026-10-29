@@ -17,8 +17,7 @@ import {
   type TransferRow
 } from './transfer-session-state'
 
-// Why: a result that never returns (stalled link, hung remote open) must not leave the row
-// promising "Cancelling…" forever; past this it says the remote state is unconfirmed.
+// Why: a result that never returns must not leave the row on "Cancelling…" forever.
 export const CANCEL_UNCONFIRMED_AFTER_MS = 15_000
 
 export type TransferProgressPanelHandle = {

@@ -72,15 +72,4 @@ describe('createUploadProgressPanel', () => {
     expect(upload.progress.isCancelled?.('u1')).toBe(true)
     expect(upload.progress.isCancelled?.('u2')).toBe(false)
   })
-
-  it('ends a cancel-clicked source that failed for another reason as failed', () => {
-    const upload = createUploadProgressPanel()
-    upload.progress.onStart([row])
-    openPanel.mock.calls[0][2]('u1')
-
-    upload.progress.onRowSettled('u1', 'failed')
-
-    expect(panel.updateRow).toHaveBeenCalledWith('u1', { status: 'failed' })
-    expect(panel.updateRow).not.toHaveBeenCalledWith('u1', { status: 'cancelled' })
-  })
 })

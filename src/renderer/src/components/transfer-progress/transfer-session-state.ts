@@ -1,9 +1,6 @@
 export type TransferDirection = 'upload' | 'download'
 
-/**
- * `cancelling` holds from the click until the transfer's own result says how it ended;
- * `unconfirmed` is a cancel whose result never came back, so the remote state is unknown.
- */
+// `unconfirmed` is a cancel whose result never came back, so the remote state is unknown.
 export type TransferRowStatus =
   | 'active'
   | 'cancelling'
@@ -103,8 +100,7 @@ export function updateTransferRow(
     if (row.transferId !== transferId) {
       return row
     }
-    // Why: a settled row must not be dragged back by a progress event that was
-    // already in flight; a cancelling row still moves and still takes its outcome.
+    // Why: an in-flight progress event must not drag a settled row back.
     if (row.status !== 'active' && row.status !== 'cancelling' && row.status !== 'unconfirmed') {
       return row
     }
@@ -139,8 +135,7 @@ export function summarizeTransferSession(session: TransferSession): {
   let doneCount = 0
   let cancelledCount = 0
   let unknownTotal = false
-  // Why: bytes of a row with no total have no denominator; counting them in the
-  // percentage would let a finished unknown-size row push the header to 100% early.
+  // Why: unknown-total bytes have no denominator and would push the header to 100% early.
   let knownSentBytes = 0
   for (const row of session.rows) {
     if (row.status === 'done') {

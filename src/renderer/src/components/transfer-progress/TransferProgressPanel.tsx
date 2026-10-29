@@ -63,8 +63,6 @@ export function TransferProgressPanel({
     }
   }, [settled, onDismiss])
 
-  // createElement at the call site still yields a valid element, so rendering
-  // nothing here is safe once the session has ended.
   if (!session) {
     return null
   }
@@ -115,8 +113,7 @@ export function TransferProgressPanel({
           }
           className="text-muted-foreground hover:text-foreground"
         >
-          {/* Why: one icon rotated, not two swapped — swapping replaces the node, so
-              there is nothing to tween and the arrow flips in a single frame. */}
+          {/* Why: rotate one icon; swapping two replaces the node and cannot tween. */}
           <ChevronDownIcon
             className={cn(
               'size-4 transition-transform duration-200 ease-out motion-reduce:transition-none',
@@ -151,8 +148,7 @@ function TransferRowItem({
   direction: TransferDirection
   onCancel: (transferId: string) => void
 }): React.JSX.Element {
-  // Why: without a known total a percentage would read as 0% forever; show bytes alone.
-  // A finished row still reads 100%, even an empty file or folder.
+  // Why: an unknown total would read 0% forever; a finished row still reads 100%.
   const percent = row.status === 'done' || row.totalBytes > 0 ? toRowPercent(row) : null
   const inactive = row.status !== 'active'
   const RowIcon = row.kind === 'directory' ? FolderIcon : FileIcon

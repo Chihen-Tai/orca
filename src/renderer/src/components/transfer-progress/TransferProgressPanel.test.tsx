@@ -27,7 +27,7 @@ describe('TransferProgressPanel row bar', () => {
     endTransferSession('s')
   })
 
-  it('animates instead of sitting at 0 while bytes move toward an unknown total', () => {
+  it('reports no value while the total is unknown', () => {
     const bar = renderRow({ sentBytes: 4096, totalBytes: 0, status: 'active' })
 
     expect(bar.getAttribute('aria-valuenow')).toBeNull()
