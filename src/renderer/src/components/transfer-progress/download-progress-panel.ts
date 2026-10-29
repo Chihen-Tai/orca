@@ -10,11 +10,7 @@ import {
   type TransferProgressPanelHandle
 } from './open-transfer-progress-panel'
 
-/**
- * Shows the transfer panel with a Cancel control while `run` downloads a remote
- * file. A user cancel resolves as `{ canceled: true }`, the same as a dismissed
- * save dialog, so callers keep a single success/error path.
- */
+// Why: a user cancel resolves as `{ canceled: true }`, like a dismissed save dialog, so callers keep one path.
 export async function runRemoteDownloadWithProgress(
   name: string,
   run: (transfer: RuntimeFileDownloadTransfer) => Promise<RuntimeFileDownloadResult>

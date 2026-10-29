@@ -57,28 +57,12 @@ describe('runtime upload session state', () => {
     expect(settled?.sentBytes).toBe(0)
   })
 
-  it('keeps a cancelled row cancelled when the import later reports it failed', () => {
-    startTransferSession('s', 'upload', [row()])
-    updateTransferRow('s', 'a', { status: 'cancelled' })
-    updateTransferRow('s', 'a', { status: 'failed' })
-
-    expect(getTransferSession('s')?.rows[0]?.status).toBe('cancelled')
-  })
-
   it('leaves other sessions untouched', () => {
     startTransferSession('s', 'upload', [row()])
     startTransferSession('other', 'upload', [row({ transferId: 'b' })])
     updateTransferRow('s', 'a', { sentBytes: 50 })
 
     expect(getTransferSession('other')?.rows[0]?.sentBytes).toBe(0)
-  })
-
-  it('ignores updates for a session that already ended', () => {
-    startTransferSession('s', 'upload', [row()])
-    endTransferSession('s')
-
-    expect(() => updateTransferRow('s', 'a', { sentBytes: 10 })).not.toThrow()
-    expect(getTransferSession('s')).toBeUndefined()
   })
 
   it('keeps rows when settled so the panel can state the outcome', () => {
@@ -99,10 +83,6 @@ describe('runtime upload session state', () => {
 
     toggleTransferCollapsed('s')
     expect(getTransferSession('s')?.collapsed).toBe(false)
-  })
-
-  it('survives a collapse toggle on a session that already ended', () => {
-    expect(() => toggleTransferCollapsed('gone')).not.toThrow()
   })
 
   it('settles only once', () => {

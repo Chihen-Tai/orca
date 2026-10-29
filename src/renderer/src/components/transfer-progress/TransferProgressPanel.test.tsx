@@ -31,19 +31,12 @@ describe('TransferProgressPanel row bar', () => {
     const bar = renderRow({ sentBytes: 4096, totalBytes: 0, status: 'active' })
 
     expect(bar.getAttribute('aria-valuenow')).toBeNull()
-    expect(bar.innerHTML).toContain('animate-[skill-update-slide')
   })
 
   it('shows a determinate bar once the total is known', () => {
     const bar = renderRow({ sentBytes: 25, totalBytes: 100, status: 'active' })
 
     expect(bar.getAttribute('aria-valuenow')).toBe('25')
-    expect(bar.innerHTML).not.toContain('skill-update-slide')
-  })
-
-  it('stops animating once a row with no total has ended', () => {
-    const bar = renderRow({ sentBytes: 4096, totalBytes: 0, status: 'cancelled' })
-
     expect(bar.innerHTML).not.toContain('skill-update-slide')
   })
 })

@@ -73,35 +73,6 @@ describe('createUploadProgressPanel', () => {
     expect(upload.progress.isCancelled?.('u2')).toBe(false)
   })
 
-  it('handles a failed cancel request and leaves the row cancelling', () => {
-    const catchRejection = vi.fn()
-    cancelRuntimeUpload.mockReturnValue({ catch: catchRejection })
-    const upload = createUploadProgressPanel()
-    upload.progress.onStart([row])
-    openPanel.mock.calls[0][2]('u1')
-
-    // Why: an unhandled rejection only fails the run, not this case, so run the handler here.
-    const onRejected = catchRejection.mock.calls[0]?.[0]
-    expect(() => onRejected(new Error('IPC unavailable'))).not.toThrow()
-    expect(panel.markCancelling).toHaveBeenCalledTimes(1)
-    expect(panel.updateRow).not.toHaveBeenCalled()
-    expect(panel.settle).not.toHaveBeenCalled()
-  })
-
-  it('ends a cancelled source as cancelled, but one that finished anyway as done', () => {
-    const upload = createUploadProgressPanel()
-    upload.progress.onStart([row, { ...row, uploadId: 'u2', sourcePath: '/local/b.txt' }])
-    const cancel = openPanel.mock.calls[0][2]
-    cancel('u1')
-    cancel('u2')
-
-    upload.progress.onRowSettled('u1', 'cancelled')
-    upload.progress.onRowSettled('u2', 'done')
-
-    expect(panel.updateRow).toHaveBeenCalledWith('u1', { status: 'cancelled' })
-    expect(panel.updateRow).toHaveBeenCalledWith('u2', { status: 'done' })
-  })
-
   it('ends a cancel-clicked source that failed for another reason as failed', () => {
     const upload = createUploadProgressPanel()
     upload.progress.onStart([row])

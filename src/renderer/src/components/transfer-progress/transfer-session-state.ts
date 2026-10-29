@@ -88,12 +88,7 @@ export function endTransferSession(sessionId: string): void {
   emit()
 }
 
-/**
- * Replace one row.
- *
- * Rows are swapped rather than mutated so `useSyncExternalStore` sees a new
- * reference; mutating in place renders a stale bar that never moves.
- */
+// Why: swapped, not mutated, so `useSyncExternalStore` sees a new reference.
 export function updateTransferRow(
   sessionId: string,
   transferId: string,

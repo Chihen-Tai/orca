@@ -75,10 +75,7 @@ export function openTransferProgressPanel(
       onLayoutChange: () => presenter.refresh()
     })
   const panelOptions = { duration: Infinity, dismissible: false, unstyled: true }
-  // Why: the id key is omitted, not set to undefined. sonner spreads these
-  // options over the id it just minted, so an explicit `id: undefined`
-  // makes it register the toast under a different id than it returns —
-  // and the next re-issue then adds a second panel instead of updating.
+  // Why: sonner spreads options over its minted id, so `id: undefined` would orphan the toast.
   const show = (id: ToastId | undefined): ToastId =>
     id === undefined
       ? toast.custom(renderPanel, panelOptions)
