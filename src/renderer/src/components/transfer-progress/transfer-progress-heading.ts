@@ -21,10 +21,12 @@ export function formatTransferProgressHeading({
   if (!settled) {
     return upload
       ? translate('transferProgress.heading.upload.active', 'Uploading {{count}} items', {
-          count: rowCount
+          count: rowCount,
+          defaultValue_one: 'Uploading {{count}} item'
         })
       : translate('transferProgress.heading.download.active', 'Downloading {{count}} items', {
-          count: rowCount
+          count: rowCount,
+          defaultValue_one: 'Downloading {{count}} item'
         })
   }
   // Why: only an all-cancelled transfer reads as cancelled; a failure among the cancels must show.
@@ -56,9 +58,11 @@ export function formatTransferProgressHeading({
   }
   return upload
     ? translate('transferProgress.heading.upload.done', 'Uploaded {{count}} items', {
-        count: rowCount
+        count: rowCount,
+        defaultValue_one: 'Uploaded {{count}} item'
       })
     : translate('transferProgress.heading.download.done', 'Downloaded {{count}} items', {
-        count: rowCount
+        count: rowCount,
+        defaultValue_one: 'Downloaded {{count}} item'
       })
 }
