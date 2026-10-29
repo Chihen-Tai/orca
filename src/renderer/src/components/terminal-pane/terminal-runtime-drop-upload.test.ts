@@ -48,7 +48,10 @@ vi.mock('sonner', () => ({
 }))
 vi.mock('@/i18n/i18n', () => ({
   translate: (_key: string, fallback: string, values?: Record<string, unknown>) =>
-    fallback.replace(/\{\{(\w+)\}\}/g, (_match, name: string) => String(values?.[name] ?? ''))
+    (values?.count === 1 && typeof values.defaultValue_one === 'string'
+      ? values.defaultValue_one
+      : fallback
+    ).replace(/\{\{(\w+)\}\}/g, (_match, name: string) => String(values?.[name] ?? ''))
 }))
 vi.mock('@/lib/browser-uuid', () => ({ createBrowserUuid: () => 'session-1' }))
 vi.mock('@/runtime/runtime-file-import-client', () => ({
