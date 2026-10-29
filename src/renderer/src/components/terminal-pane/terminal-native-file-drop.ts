@@ -95,7 +95,10 @@ export async function deliverNativeTerminalFileDrop(
 }
 
 async function pasteLocalDropPaths(
-  args: NativeDropFlowArgs & { localWslDrop: boolean; targetShell: 'posix' | 'windows' }
+  args: NativeDropFlowArgs & {
+    localWslDrop: boolean
+    targetShell: 'posix' | 'windows'
+  }
 ): Promise<void> {
   // Local WSL shells need distro-aware POSIX paths despite their Windows host.
   if (isWslUncPath(args.worktreePath)) {
@@ -130,12 +133,12 @@ async function uploadRemoteDropPaths(
   const message =
     args.dataPaths.length === 1
       ? translate(
-          'auto.components.terminal.pane.terminal.drop.handler.uploadingFileToRemoteSingular',
+          'auto.components.terminal.pane.terminal.drop.handler.uploadingFilesToRemote_one',
           'Uploading {{count}} file to remote…',
           { count: args.dataPaths.length }
         )
       : translate(
-          'auto.components.terminal.pane.terminal.drop.handler.uploadingFileToRemotePlural',
+          'auto.components.terminal.pane.terminal.drop.handler.uploadingFilesToRemote_other',
           'Uploading {{count}} files to remote…',
           { count: args.dataPaths.length }
         )
