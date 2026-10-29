@@ -5,6 +5,7 @@ import { extractIpcErrorMessage } from '@/lib/ipc-error'
 import { basename } from '@/lib/path'
 import { downloadRuntimeFile } from '@/runtime/runtime-file-read-client'
 import type { RuntimeFileOperationArgs } from '@/runtime/runtime-file-client-types'
+import { runRemoteDownloadWithProgress } from '@/components/transfer-progress/download-progress-panel'
 
 /**
  * Remote counterpart of "Open with default app": the OS can only launch a local
@@ -16,9 +17,10 @@ export async function downloadAndOpenRemoteTerminalFile(
 ): Promise<void> {
   const name = basename(filePath) || filePath
   try {
-    const result = fileContext.connectionId
-      ? await window.api.fs.downloadFile({ filePath, connectionId: fileContext.connectionId })
-      : await downloadRuntimeFile(fileContext, filePath, name)
+    // Why: SSH workspaces are served by the host's runtime, with an SSH fallback.
+    const result = await runRemoteDownloadWithProgress(name, (transfer) =>
+      downloadRuntimeFile(fileContext, filePath, name, transfer)
+    )
     // Why: cancelling the native save dialog is a deliberate no-op, not a failure.
     if (result.canceled) {
       return

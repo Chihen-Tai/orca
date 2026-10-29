@@ -5,18 +5,29 @@ const BYTE_UNITS = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'] as const
 /** Both figures share the total's unit; scaling each alone renders "900 / 32.5". */
 export function formatTransferredOfTotal(sentBytes: number, totalBytes: number): string {
   if (!Number.isFinite(totalBytes) || totalBytes <= 0) {
+    // Why: a download whose size lookup failed still moves bytes worth showing.
+    if (Number.isFinite(sentBytes) && sentBytes > 0) {
+      const { divisor, unit, precision } = scaleFor(sentBytes)
+      return `${(sentBytes / divisor).toFixed(precision)} ${unit}`
+    }
     return `0 ${BYTE_UNITS[0]}`
   }
+  const { divisor, unit, precision } = scaleFor(totalBytes)
+  const scaledTotal = totalBytes / divisor
+  const scaledSent = Math.min(Math.max(sentBytes, 0), totalBytes) / divisor
+  return `${scaledSent.toFixed(precision)} / ${scaledTotal.toFixed(precision)} ${unit}`
+}
+
+function scaleFor(bytes: number): { divisor: number; unit: string; precision: number } {
   let unitIndex = 0
   let divisor = 1
-  while (totalBytes / divisor >= 1024 && unitIndex < BYTE_UNITS.length - 1) {
+  while (bytes / divisor >= 1024 && unitIndex < BYTE_UNITS.length - 1) {
     divisor *= 1024
     unitIndex += 1
   }
-  const scaledTotal = totalBytes / divisor
-  const scaledSent = Math.min(Math.max(sentBytes, 0), totalBytes) / divisor
-  const precision = scaledTotal >= 100 || unitIndex === 0 ? 0 : scaledTotal >= 10 ? 1 : 2
-  return `${scaledSent.toFixed(precision)} / ${scaledTotal.toFixed(precision)} ${BYTE_UNITS[unitIndex]}`
+  const scaled = bytes / divisor
+  const precision = scaled >= 100 || unitIndex === 0 ? 0 : scaled >= 10 ? 1 : 2
+  return { divisor, unit: BYTE_UNITS[unitIndex], precision }
 }
 
 /** A finished row reads 100% even with no bytes to move (an empty file or folder). */

@@ -13,6 +13,7 @@ import {
   settleTransferSession,
   startTransferSession,
   updateTransferRow,
+  type TransferDirection,
   type TransferRow
 } from './transfer-session-state'
 
@@ -52,12 +53,13 @@ function openGlobalToast(show: (id: ToastId | undefined) => ToastId): WorktreeSc
 }
 
 export function openTransferProgressPanel(
+  direction: TransferDirection,
   rows: TransferRow[],
   onCancel: (transferId: string) => void,
   scope?: TransferPanelScope
 ): TransferProgressPanelHandle {
   const sessionId = createBrowserUuid()
-  startTransferSession(sessionId, rows)
+  startTransferSession(sessionId, direction, rows)
   const close = (): void => {
     endTransferSession(sessionId)
     presenter.close()

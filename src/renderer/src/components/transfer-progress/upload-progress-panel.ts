@@ -29,6 +29,7 @@ export function createUploadProgressPanel(scope?: TransferPanelScope): UploadPro
           return
         }
         panel = openTransferProgressPanel(
+          'upload',
           rows.map((row) => ({
             transferId: row.uploadId,
             name: row.name,

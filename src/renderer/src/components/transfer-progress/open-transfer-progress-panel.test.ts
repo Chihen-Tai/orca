@@ -25,7 +25,7 @@ describe('openTransferProgressPanel cancel states', () => {
   const status = () => getTransferSession('panel-1')?.rows[0]?.status
 
   it('says the remote state is unconfirmed when no result follows the cancel', () => {
-    const panel = openTransferProgressPanel(rows, vi.fn())
+    const panel = openTransferProgressPanel('upload', rows, vi.fn())
     panel.markCancelling('a')
     expect(status()).toBe('cancelling')
 
@@ -35,7 +35,7 @@ describe('openTransferProgressPanel cancel states', () => {
   })
 
   it('keeps the real result when it arrives before the deadline', () => {
-    const panel = openTransferProgressPanel(rows, vi.fn())
+    const panel = openTransferProgressPanel('upload', rows, vi.fn())
     panel.markCancelling('a')
     panel.updateRow('a', { status: 'cancelled' })
 

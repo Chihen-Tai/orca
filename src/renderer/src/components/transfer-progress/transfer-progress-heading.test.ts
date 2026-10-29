@@ -5,6 +5,7 @@ describe('formatTransferProgressHeading', () => {
   it('counts files while the drop is running', () => {
     expect(
       formatTransferProgressHeading({
+        direction: 'upload',
         rowCount: 2,
         settled: false,
         doneCount: 0,
@@ -16,6 +17,7 @@ describe('formatTransferProgressHeading', () => {
   it('says cancelled once everything stopped and nothing landed', () => {
     expect(
       formatTransferProgressHeading({
+        direction: 'upload',
         rowCount: 2,
         settled: true,
         doneCount: 0,
@@ -27,6 +29,7 @@ describe('formatTransferProgressHeading', () => {
   it('does not let a cancel hide a failure when nothing landed', () => {
     expect(
       formatTransferProgressHeading({
+        direction: 'upload',
         rowCount: 2,
         settled: true,
         doneCount: 0,
@@ -38,6 +41,7 @@ describe('formatTransferProgressHeading', () => {
   it('reports a partial drop by count', () => {
     expect(
       formatTransferProgressHeading({
+        direction: 'upload',
         rowCount: 3,
         settled: true,
         doneCount: 1,
@@ -49,6 +53,7 @@ describe('formatTransferProgressHeading', () => {
   it('reports a clean finish', () => {
     expect(
       formatTransferProgressHeading({
+        direction: 'upload',
         rowCount: 2,
         settled: true,
         doneCount: 2,
@@ -60,6 +65,7 @@ describe('formatTransferProgressHeading', () => {
   it('distinguishes a failure from a cancel', () => {
     expect(
       formatTransferProgressHeading({
+        direction: 'upload',
         rowCount: 1,
         settled: true,
         doneCount: 0,
@@ -71,6 +77,7 @@ describe('formatTransferProgressHeading', () => {
   it('uses the singular for one file', () => {
     expect(
       formatTransferProgressHeading({
+        direction: 'upload',
         rowCount: 1,
         settled: false,
         doneCount: 0,
@@ -79,11 +86,33 @@ describe('formatTransferProgressHeading', () => {
     ).toBe('Uploading 1 item')
     expect(
       formatTransferProgressHeading({
+        direction: 'upload',
         rowCount: 1,
         settled: true,
         doneCount: 1,
         cancelledCount: 0
       })
     ).toBe('Uploaded 1 item')
+  })
+
+  it('words a download the same way', () => {
+    expect(
+      formatTransferProgressHeading({
+        direction: 'download',
+        rowCount: 1,
+        settled: false,
+        doneCount: 0,
+        cancelledCount: 0
+      })
+    ).toBe('Downloading 1 item')
+    expect(
+      formatTransferProgressHeading({
+        direction: 'download',
+        rowCount: 2,
+        settled: true,
+        doneCount: 0,
+        cancelledCount: 2
+      })
+    ).toBe('Download cancelled')
   })
 })

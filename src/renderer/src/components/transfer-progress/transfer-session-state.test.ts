@@ -31,7 +31,7 @@ describe('runtime upload session state', () => {
   it('notifies subscribers when a row advances', () => {
     const listener = vi.fn()
     const unsubscribe = subscribeToTransferSessions(listener)
-    startTransferSession('s', [row()])
+    startTransferSession('s', 'upload', [row()])
     updateTransferRow('s', 'a', { sentBytes: 25 })
 
     expect(listener).toHaveBeenCalledTimes(2)
@@ -40,7 +40,7 @@ describe('runtime upload session state', () => {
   })
 
   it('replaces the row object so a memoized bar re-renders', () => {
-    startTransferSession('s', [row()])
+    startTransferSession('s', 'upload', [row()])
     const before = getTransferSession('s')?.rows[0]
     updateTransferRow('s', 'a', { sentBytes: 10 })
 
@@ -48,7 +48,7 @@ describe('runtime upload session state', () => {
   })
 
   it('refuses to drag a cancelled row back into uploading', () => {
-    startTransferSession('s', [row()])
+    startTransferSession('s', 'upload', [row()])
     updateTransferRow('s', 'a', { status: 'cancelled' })
     updateTransferRow('s', 'a', { sentBytes: 90, status: 'active' })
 
@@ -58,15 +58,15 @@ describe('runtime upload session state', () => {
   })
 
   it('leaves other sessions untouched', () => {
-    startTransferSession('s', [row()])
-    startTransferSession('other', [row({ transferId: 'b' })])
+    startTransferSession('s', 'upload', [row()])
+    startTransferSession('other', 'upload', [row({ transferId: 'b' })])
     updateTransferRow('s', 'a', { sentBytes: 50 })
 
     expect(getTransferSession('other')?.rows[0]?.sentBytes).toBe(0)
   })
 
   it('keeps rows when settled so the panel can state the outcome', () => {
-    startTransferSession('s', [row({ status: 'cancelled' })])
+    startTransferSession('s', 'upload', [row({ status: 'cancelled' })])
     settleTransferSession('s')
 
     const session = getTransferSession('s')
@@ -75,7 +75,7 @@ describe('runtime upload session state', () => {
   })
 
   it('toggles collapse in the store so the panel can be remounted to re-measure', () => {
-    startTransferSession('s', [row()])
+    startTransferSession('s', 'upload', [row()])
     expect(getTransferSession('s')?.collapsed).toBe(false)
 
     toggleTransferCollapsed('s')
@@ -86,7 +86,7 @@ describe('runtime upload session state', () => {
   })
 
   it('settles only once', () => {
-    startTransferSession('s', [row()])
+    startTransferSession('s', 'upload', [row()])
     settleTransferSession('s')
     const listener = vi.fn()
     const unsubscribe = subscribeToTransferSessions(listener)
@@ -97,7 +97,7 @@ describe('runtime upload session state', () => {
   })
 
   it('does not notify when nothing actually changed', () => {
-    startTransferSession('s', [row({ status: 'done' })])
+    startTransferSession('s', 'upload', [row({ status: 'done' })])
     const listener = vi.fn()
     const unsubscribe = subscribeToTransferSessions(listener)
     updateTransferRow('s', 'a', { sentBytes: 10 })
@@ -111,6 +111,7 @@ describe('summarizeTransferSession', () => {
   it('averages across rows by bytes, not by row count', () => {
     const summary = summarizeTransferSession({
       sessionId: 's',
+      direction: 'upload',
       settled: true,
       collapsed: false,
       rows: [
@@ -125,6 +126,7 @@ describe('summarizeTransferSession', () => {
   it('drops cancelled rows from the denominator so the bar can still finish', () => {
     const summary = summarizeTransferSession({
       sessionId: 's',
+      direction: 'upload',
       settled: true,
       collapsed: false,
       rows: [
@@ -140,6 +142,7 @@ describe('summarizeTransferSession', () => {
   it('counts only rows still moving as active', () => {
     const summary = summarizeTransferSession({
       sessionId: 's',
+      direction: 'upload',
       settled: true,
       collapsed: false,
       rows: [
@@ -152,19 +155,52 @@ describe('summarizeTransferSession', () => {
     expect(summary.activeCount).toBe(1)
   })
 
-  it('is zero percent rather than NaN for an all-empty drop', () => {
+  it('claims no percentage rather than NaN when no total is known', () => {
     const summary = summarizeTransferSession({
       sessionId: 's',
+      direction: 'upload',
       settled: true,
       collapsed: false,
+      // Why: a finished row does not mark the total unknown, so only the zero-total guard is left.
       rows: [row({ sentBytes: 0, totalBytes: 0, status: 'done' })]
+    })
+
+    expect(summary.percent).toBeNull()
+  })
+
+  it('counts bytes of a row with no total and marks the header indeterminate', () => {
+    const summary = summarizeTransferSession({
+      sessionId: 's',
+      direction: 'download',
+      settled: false,
+      collapsed: false,
+      rows: [
+        row({ transferId: 'a', sentBytes: 10, totalBytes: 10, status: 'done' }),
+        row({ transferId: 'b', sentBytes: 7, totalBytes: 0 })
+      ]
+    })
+
+    expect(summary.sentBytes).toBe(17)
+    expect(summary.percent).toBeNull()
+  })
+
+  it('does not let a finished unknown-size row push the header to 100% early', () => {
+    const summary = summarizeTransferSession({
+      sessionId: 's',
+      direction: 'upload',
+      settled: false,
+      collapsed: false,
+      rows: [
+        row({ transferId: 'a', sentBytes: 100, totalBytes: 0, status: 'done' }),
+        row({ transferId: 'b', sentBytes: 0, totalBytes: 100 })
+      ]
     })
 
     expect(summary.percent).toBe(0)
   })
 
   it('lets a cancelling row still move and still take the outcome its result reports', () => {
-    startTransferSession('s', [row({ status: 'cancelling' })])
+    startTransferSession('s', 'download', [row({ status: 'cancelling' })])
 
     updateTransferRow('s', 'a', { sentBytes: 40 })
     updateTransferRow('s', 'a', { status: 'active' })
@@ -176,7 +212,7 @@ describe('summarizeTransferSession', () => {
 
 describe('unconfirmed cancels', () => {
   it('still take the late result, but never slide back to cancelling or active', () => {
-    startTransferSession('s', [row({ status: 'unconfirmed' })])
+    startTransferSession('s', 'upload', [row({ status: 'unconfirmed' })])
 
     updateTransferRow('s', 'a', { status: 'cancelling' })
     updateTransferRow('s', 'a', { status: 'active' })

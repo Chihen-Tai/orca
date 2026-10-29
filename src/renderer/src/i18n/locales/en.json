@@ -20393,6 +20393,7 @@
     "cancel": "Cancel"
   },
   "transferProgress": {
+    "cancelDownload": "Cancel download",
     "cancelUpload": "Cancel upload",
     "cancelling": "Cancelling…",
     "cancelUnconfirmed": "Cancel sent; remote state unconfirmed",
@@ -20411,6 +20412,17 @@
         "partial": "Uploaded {{doneCount}} of {{rowCount}}",
         "cancelled": "Upload cancelled",
         "failed": "Upload failed"
+      },
+      "download": {
+        "active": "Downloading {{count}} items",
+        "active_one": "Downloading {{count}} item",
+        "active_other": "Downloading {{count}} items",
+        "done": "Downloaded {{count}} items",
+        "done_one": "Downloaded {{count}} item",
+        "done_other": "Downloaded {{count}} items",
+        "partial": "Downloaded {{doneCount}} of {{rowCount}}",
+        "cancelled": "Download cancelled",
+        "failed": "Download failed"
       }
     }
   },
