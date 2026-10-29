@@ -80,4 +80,13 @@ describe('runtime upload cancel IPC', () => {
     sender.emit('render-process-gone')
     expect(isUploadCancelled(scopeRuntimeUploadId(3, 'b'))).toBe(false)
   })
+
+  it('drops cancels when the window is closed', () => {
+    const sender = renderer(2)
+    invoke('fs:cancelRuntimeUpload', sender, { uploadId: 'u' })
+    expect(isUploadCancelled(scopeRuntimeUploadId(2, 'u'))).toBe(true)
+
+    sender.emit('destroyed')
+    expect(isUploadCancelled(scopeRuntimeUploadId(2, 'u'))).toBe(false)
+  })
 })

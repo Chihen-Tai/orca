@@ -130,6 +130,8 @@ export async function streamExternalFileSlices(
         args.onProgress?.({ sentBytes: offset, totalBytes })
       }
     }
+    // A cancel during the final write would otherwise resolve and let the renderer commit.
+    throwIfCancelled(args.cancelSignal)
 
     // Recheck before commit, including empty-file round trips; mtime catches same-size in-place edits.
     const afterReadStat = await handle.stat()

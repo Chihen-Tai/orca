@@ -418,6 +418,32 @@ describe('streamExternalFileToRuntime', () => {
     expect(options?.signal).not.toBe(controller.signal)
   })
 
+  it.each([
+    ['the last slice', RUNTIME_UPLOAD_SLICE_BYTES * 2, 2],
+    ['an empty file', 0, 1]
+  ])(
+    'rejects when the cancel lands during %s so the renderer never commits',
+    async (_label, byteLength, chunkCount) => {
+      const filePath = join(workDir, 'final-write.bin')
+      await writeFile(filePath, Buffer.alloc(byteLength))
+      const controller = new AbortController()
+      callRuntimeEnvironment.mockImplementation(async () => {
+        if (chunkCalls().length === chunkCount) {
+          controller.abort()
+        }
+        return { id: 'x', ok: true, result: {}, _meta: {} }
+      })
+
+      await expect(
+        streamExternalFileToRuntime({
+          ...(await baseArgs(filePath)),
+          cancelSignal: controller.signal
+        })
+      ).rejects.toThrow('Upload cancelled')
+      expect(chunkCalls()).toHaveLength(chunkCount)
+    }
+  )
+
   // symlink() needs privileges or Developer Mode on Windows.
   it.skipIf(process.platform === 'win32')('refuses a symlinked source', async () => {
     const targetPath = join(workDir, 'secret.txt')
