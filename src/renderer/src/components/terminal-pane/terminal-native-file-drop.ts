@@ -130,18 +130,11 @@ async function uploadRemoteDropPaths(
     worktreeId: string
   }
 ): Promise<void> {
-  const message =
-    args.dataPaths.length === 1
-      ? translate(
-          'auto.components.terminal.pane.terminal.drop.handler.uploadingFilesToRemote_one',
-          'Uploading {{count}} file to remote…',
-          { count: args.dataPaths.length }
-        )
-      : translate(
-          'auto.components.terminal.pane.terminal.drop.handler.uploadingFilesToRemote_other',
-          'Uploading {{count}} files to remote…',
-          { count: args.dataPaths.length }
-        )
+  const message = translate(
+    'auto.components.terminal.pane.terminal.drop.handler.uploadingFilesToRemote',
+    'Uploading {{count}} files to remote…',
+    { count: args.dataPaths.length, defaultValue_one: 'Uploading {{count}} file to remote…' }
+  )
   const pending = openWorktreeScopedToast({
     worktreeId: args.worktreeId,
     show: (id) => (id === undefined ? toast.loading(message) : toast.loading(message, { id }))
