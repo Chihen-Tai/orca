@@ -125,7 +125,8 @@ export function TransferProgressPanel({
         </button>
       </div>
       {!collapsed && (
-        <ul className="border-t border-border">
+        // Why: a large batch would otherwise push the header and its controls off-screen.
+        <ul className="max-h-[50vh] overflow-y-auto scrollbar-sleek border-t border-border">
           {session.rows.map((row) => (
             <TransferRowItem
               key={row.transferId}
