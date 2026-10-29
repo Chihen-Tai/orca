@@ -111,7 +111,6 @@ export function TransferProgressPanel({
               ? translate('transferProgress.showItems', 'Show items')
               : translate('transferProgress.hideItems', 'Hide items')
           }
-          className="text-muted-foreground hover:text-foreground"
         >
           {/* Why: rotate one icon; swapping two replaces the node and cannot tween. */}
           <ChevronDownIcon
@@ -194,7 +193,7 @@ function TransferRowItem({
             ? translate('transferProgress.cancelUpload', 'Cancel upload')
             : translate('transferProgress.cancelDownload', 'Cancel download')
         }
-        className="text-muted-foreground hover:text-foreground disabled:opacity-0"
+        className={inactive ? 'invisible' : undefined}
       >
         <XIcon className="size-4" />
       </Button>
