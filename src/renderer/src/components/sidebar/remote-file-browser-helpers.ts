@@ -169,7 +169,10 @@ export function parsePathInput(
       driveRoot,
       committedSegments: [],
       trailingFilter: '',
-      invalid: 'Invalid path: repeated separators'
+      invalid: translate(
+        'auto.components.sidebar.RemoteFileBrowser.invalidPathRepeatedSeparators',
+        'Invalid path: repeated separators'
+      )
     }
   }
 
@@ -182,7 +185,10 @@ export function parsePathInput(
       driveRoot,
       committedSegments: [],
       trailingFilter: '',
-      invalid: 'Invalid path: control characters are not allowed'
+      invalid: translate(
+        'auto.components.sidebar.RemoteFileBrowser.invalidPathControlCharacters',
+        'Invalid path: control characters are not allowed'
+      )
     }
   }
 
